@@ -1,0 +1,6 @@
+{
+  "name": "DoctorBrand CMS",
+  "description": "نظام إدارة مواقع الهوية الشخصية للأطباء في مصر | Centralized Personal Branding CMS for Doctors in Egypt",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
