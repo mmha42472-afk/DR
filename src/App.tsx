@@ -8,6 +8,8 @@ import { DoctorProfile, FirebaseConnectionConfig } from './types/doctor';
 import {
   getAllDoctors,
   getDoctorBySlug,
+  fetchDoctorBySlugWithDiagnosis,
+  DoctorFetchErrorType,
   saveDoctor,
   deleteDoctor,
   duplicateDoctor,
@@ -28,19 +30,116 @@ import { DoctorEditor, EditorTab } from './components/editor/DoctorEditor';
 import { WebsiteBuilder } from './components/builder/WebsiteBuilder';
 import { DoctorWebsite } from './components/public/DoctorWebsite';
 import { AdminLogin } from './components/auth/AdminLogin';
-import { AlertCircle, ArrowRight, ShieldCheck, Stethoscope, ArrowLeft } from 'lucide-react';
+import {
+  AlertCircle,
+  ArrowRight,
+  ShieldCheck,
+  Stethoscope,
+  ArrowLeft,
+  RefreshCw,
+  FileText,
+  WifiOff,
+  Lock,
+} from 'lucide-react';
 
 type AppView = 'dashboard' | 'editor' | 'builder' | 'public_website' | 'admin_preview';
 
+/**
+ * Synchronously extract the public doctor slug from current URL (pathname, hash, or query)
+ * Ensures zero-delay public route detection before first render.
+ */
+function extractPublicSlugFromUrl(): string | null {
+  if (typeof window === 'undefined') return null;
+  const path = window.location.pathname;
+  const hash = window.location.hash;
+  const search = window.location.search;
+
+  // 1. Query parameters: ?doctor=dr-sgyb5, ?slug=dr-sgyb5, ?d=dr-sgyb5
+  try {
+    const searchParams = new URLSearchParams(search);
+    const querySlug = searchParams.get('doctor') || searchParams.get('slug') || searchParams.get('d');
+    if (querySlug && querySlug.trim()) {
+      return decodeURIComponent(querySlug.trim());
+    }
+  } catch {}
+
+  // 2. Pathname prefixes: /doctors/:slug, /doctor/:slug, /dr/:slug
+  const prefixMatch = path.match(/^\/(?:doctors|doctor|dr)\/([^/?#]+)/i);
+  if (prefixMatch && prefixMatch[1]) {
+    try {
+      return decodeURIComponent(prefixMatch[1].trim());
+    } catch {
+      return prefixMatch[1].trim();
+    }
+  }
+
+  // 3. Root slug /:slug (excluding reserved keywords)
+  const singleMatch = path.match(/^\/([^/?#]+)/);
+  if (singleMatch && singleMatch[1]) {
+    const candidate = singleMatch[1].toLowerCase().trim();
+    const reserved = [
+      'dashboard',
+      'admin',
+      'builder',
+      'editor',
+      'api',
+      'assets',
+      'favicon.ico',
+      'index.html',
+      'robots.txt',
+      'sitemap.xml',
+    ];
+    if (!reserved.includes(candidate)) {
+      try {
+        return decodeURIComponent(singleMatch[1].trim());
+      } catch {
+        return singleMatch[1].trim();
+      }
+    }
+  }
+
+  // 4. Hash route: #/doctors/:slug, #doctor/:slug, #/:slug
+  if (hash) {
+    const hashPrefixMatch = hash.match(/^#\/?(?:doctors|doctor|dr)\/([^/?#]+)/i);
+    if (hashPrefixMatch && hashPrefixMatch[1]) {
+      try {
+        return decodeURIComponent(hashPrefixMatch[1].trim());
+      } catch {
+        return hashPrefixMatch[1].trim();
+      }
+    } else {
+      const hashSingleMatch = hash.match(/^#\/?([^/?#]+)/);
+      if (hashSingleMatch && hashSingleMatch[1]) {
+        const candidate = hashSingleMatch[1].toLowerCase().trim();
+        const reserved = ['dashboard', 'admin', 'builder', 'editor'];
+        if (!reserved.includes(candidate)) {
+          try {
+            return decodeURIComponent(hashSingleMatch[1].trim());
+          } catch {
+            return hashSingleMatch[1].trim();
+          }
+        }
+      }
+    }
+  }
+
+  return null;
+}
+
 export default function App() {
+  const initialSlug = extractPublicSlugFromUrl();
   const [doctors, setDoctors] = useState<DoctorProfile[]>([]);
-  const [currentView, setCurrentView] = useState<AppView>('dashboard');
+  const [currentView, setCurrentView] = useState<AppView>(initialSlug ? 'public_website' : 'dashboard');
   const [selectedDoctor, setSelectedDoctor] = useState<DoctorProfile | null>(null);
   const [editorInitialTab, setEditorInitialTab] = useState<EditorTab>('basic');
   const [dbStatus, setDbStatus] = useState<DatabaseStatus>(getDatabaseStatus());
-  const [loading, setLoading] = useState(true);
-  const [publicLoading, setPublicLoading] = useState(false);
-  const [publicNotFoundSlug, setPublicNotFoundSlug] = useState<string | null>(null);
+  const [loading, setLoading] = useState(!initialSlug);
+  const [publicLoading, setPublicLoading] = useState(Boolean(initialSlug));
+  const [publicError, setPublicError] = useState<{
+    type: DoctorFetchErrorType;
+    slug: string;
+    message?: string;
+  } | null>(null);
   const [adminUser, setAdminUser] = useState<AdminUser | null>(getAdminUser());
 
   // Subscribe to auth state changes
@@ -51,7 +150,7 @@ export default function App() {
     return () => unsubscribe();
   }, []);
 
-  // Load doctors from storage
+  // Load doctors from storage for CMS Dashboard
   const loadDoctors = useCallback(async () => {
     try {
       const list = await getAllDoctors();
@@ -64,105 +163,50 @@ export default function App() {
     }
   }, []);
 
-  // Handle URL route resolution with support for /doctors/:slug, /doctor/:slug, /dr/:slug, root /:slug, and query params
+  // Handle URL route resolution directly from Firebase without depending on preloaded CMS state
   const resolveRouteFromUrl = useCallback(async () => {
-    const path = window.location.pathname;
-    const hash = window.location.hash;
-    const search = window.location.search;
-
-    let targetSlug: string | null = null;
-
-    // 1. Check query parameters: ?doctor=dr-ahmed, ?slug=dr-ahmed, or ?d=dr-ahmed
-    try {
-      const searchParams = new URLSearchParams(search);
-      const querySlug = searchParams.get('doctor') || searchParams.get('slug') || searchParams.get('d');
-      if (querySlug) {
-        targetSlug = querySlug.trim();
-      }
-    } catch {
-      // ignore query parsing errors
-    }
-
-    // 2. Check pathname patterns:
-    if (!targetSlug) {
-      // Check /doctors/:slug or /doctor/:slug or /dr/:slug
-      const prefixMatch = path.match(/^\/(?:doctors|doctor|dr)\/([^/?#]+)/i);
-      if (prefixMatch && prefixMatch[1]) {
-        targetSlug = prefixMatch[1];
-      } else {
-        // Check single segment root path e.g. /dr-ahmed (excluding reserved words)
-        const singleMatch = path.match(/^\/([^/?#]+)/);
-        if (singleMatch && singleMatch[1]) {
-          const candidate = singleMatch[1].toLowerCase().trim();
-          const reserved = [
-            'dashboard',
-            'admin',
-            'builder',
-            'editor',
-            'api',
-            'assets',
-            'favicon.ico',
-            'index.html',
-            'robots.txt',
-            'sitemap.xml',
-          ];
-          if (!reserved.includes(candidate)) {
-            targetSlug = singleMatch[1];
-          }
-        }
-      }
-    }
-
-    // 3. Check hash patterns: #/doctors/:slug, #doctor/:slug, #/:slug
-    if (!targetSlug && hash) {
-      const hashPrefixMatch = hash.match(/^#\/?(?:doctors|doctor|dr)\/([^/?#]+)/i);
-      if (hashPrefixMatch && hashPrefixMatch[1]) {
-        targetSlug = hashPrefixMatch[1];
-      } else {
-        const hashSingleMatch = hash.match(/^#\/?([^/?#]+)/);
-        if (hashSingleMatch && hashSingleMatch[1]) {
-          const candidate = hashSingleMatch[1].toLowerCase().trim();
-          const reserved = ['dashboard', 'admin', 'builder', 'editor'];
-          if (!reserved.includes(candidate)) {
-            targetSlug = hashSingleMatch[1];
-          }
-        }
-      }
-    }
+    const targetSlug = extractPublicSlugFromUrl();
 
     if (targetSlug) {
-      try {
-        targetSlug = decodeURIComponent(targetSlug).trim();
-      } catch {
-        // Keep targetSlug as-is if decoding fails
-      }
-
       setPublicLoading(true);
+      setPublicError(null);
       try {
-        const doc = await getDoctorBySlug(targetSlug);
-        if (doc) {
-          setSelectedDoctor(doc);
+        const result = await fetchDoctorBySlugWithDiagnosis(targetSlug);
+        if (result.doctor) {
+          setSelectedDoctor(result.doctor);
           setCurrentView('public_website');
-          setPublicNotFoundSlug(null);
+          setPublicError(null);
         } else {
-          setPublicNotFoundSlug(targetSlug);
           setSelectedDoctor(null);
           setCurrentView('public_website');
+          setPublicError({
+            type: result.error || 'not_found',
+            slug: targetSlug,
+            message: result.errorMessage,
+          });
         }
+      } catch (err) {
+        setSelectedDoctor(null);
+        setCurrentView('public_website');
+        setPublicError({
+          type: 'connection_error',
+          slug: targetSlug,
+          message: err instanceof Error ? err.message : 'تعذر الاتصال بقاعدة البيانات',
+        });
       } finally {
         setPublicLoading(false);
       }
     } else {
       setCurrentView('dashboard');
       setSelectedDoctor(null);
-      setPublicNotFoundSlug(null);
+      setPublicError(null);
+      loadDoctors();
     }
-  }, []);
+  }, [loadDoctors]);
 
+  // Initial routing listener
   useEffect(() => {
-    loadDoctors().then(() => {
-      resolveRouteFromUrl();
-    });
+    resolveRouteFromUrl();
 
     const handlePopState = () => {
       resolveRouteFromUrl();
@@ -174,7 +218,7 @@ export default function App() {
       window.removeEventListener('popstate', handlePopState);
       window.removeEventListener('hashchange', handlePopState);
     };
-  }, [loadDoctors, resolveRouteFromUrl]);
+  }, [resolveRouteFromUrl]);
 
   // Navigate to public doctor URL
   const navigateToDoctorPublic = (slug: string) => {
@@ -188,10 +232,10 @@ export default function App() {
     window.history.pushState({}, '', '/');
     setCurrentView('dashboard');
     setSelectedDoctor(null);
-    setPublicNotFoundSlug(null);
+    setPublicError(null);
   };
 
-  // Create new blank doctor
+  // Create new blank doctor (defaults to published so public link works immediately upon creation)
   const handleAddNewDoctor = () => {
     const newId = 'doc-' + Date.now();
     const blankDoctor: DoctorProfile = {
@@ -242,7 +286,7 @@ export default function App() {
         metaTitle: '',
         metaDescription: '',
       },
-      status: 'draft',
+      status: 'published',
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
       isDemo: false,
@@ -391,46 +435,122 @@ export default function App() {
     );
   }
 
-  // View: Public Website (Strict visitor mode - no admin bars, no edit buttons, no dashboard links)
+  // View: Public Website (Strict visitor mode - 100% public patient view, NO admin controls)
   if (currentView === 'public_website') {
     // 0. Public loading state
     if (publicLoading) {
       return (
         <div dir="rtl" className="min-h-screen bg-slate-50 flex items-center justify-center p-4 font-sans text-slate-900">
           <div className="text-center space-y-3 p-8 bg-white rounded-2xl border border-slate-200/90 shadow-xs max-w-sm w-full mx-4">
-            <div className="w-10 h-10 rounded-xl bg-teal-600 text-white mx-auto flex items-center justify-center">
-              <Stethoscope className="w-5 h-5 animate-pulse" />
+            <div className="w-12 h-12 rounded-xl bg-teal-600 text-white mx-auto flex items-center justify-center shadow-md">
+              <Stethoscope className="w-6 h-6 animate-pulse" />
             </div>
-            <h2 className="text-sm font-bold text-slate-800">جارٍ تحميل موقع الطبيب...</h2>
-            <p className="text-xs text-slate-400 font-mono">يرجى الانتظار لحظات</p>
+            <h2 className="text-base font-bold text-slate-800">جارٍ تحميل موقع الطبيب...</h2>
+            <p className="text-xs text-slate-500 font-mono">يرجى الانتظار لحظات لجلب البيانات من الخادم</p>
           </div>
         </div>
       );
     }
 
-    // 1. Slug not found (Visitor 404 - clean public error page without admin controls)
-    if (!selectedDoctor && publicNotFoundSlug) {
+    // 1. Diagnostic Public Error States (Visitor-facing, differentiated, and graceful)
+    if (!selectedDoctor && publicError) {
+      const isNotFound = publicError.type === 'not_found';
+      const isNotPublished = publicError.type === 'not_published';
+      const isPermissionDenied = publicError.type === 'permission_denied';
+      const isConnectionError = publicError.type === 'connection_error';
+
       return (
         <div dir="rtl" className="min-h-screen bg-slate-50 flex items-center justify-center p-4 font-sans text-slate-900">
           <div className="max-w-md w-full bg-white rounded-2xl p-6 sm:p-8 border border-slate-200/90 shadow-sm text-center space-y-5">
-            <div className="w-14 h-14 rounded-2xl bg-rose-50 text-rose-600 mx-auto flex items-center justify-center ring-8 ring-rose-50/50">
-              <AlertCircle className="w-7 h-7" />
+            {/* Error Icon */}
+            <div
+              className={`w-14 h-14 rounded-2xl mx-auto flex items-center justify-center ring-8 ${
+                isNotPublished
+                  ? 'bg-amber-50 text-amber-600 ring-amber-50/50'
+                  : isConnectionError
+                  ? 'bg-rose-50 text-rose-600 ring-rose-50/50'
+                  : isPermissionDenied
+                  ? 'bg-indigo-50 text-indigo-600 ring-indigo-50/50'
+                  : 'bg-rose-50 text-rose-600 ring-rose-50/50'
+              }`}
+            >
+              {isNotPublished ? (
+                <FileText className="w-7 h-7" />
+              ) : isConnectionError ? (
+                <WifiOff className="w-7 h-7" />
+              ) : isPermissionDenied ? (
+                <Lock className="w-7 h-7" />
+              ) : (
+                <AlertCircle className="w-7 h-7" />
+              )}
             </div>
+
+            {/* Error Header */}
             <div className="space-y-1.5">
-              <span className="text-xs font-bold text-rose-600 uppercase tracking-wider">خطأ 404</span>
+              <span
+                className={`text-[11px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full inline-block ${
+                  isNotPublished
+                    ? 'bg-amber-100 text-amber-800'
+                    : isConnectionError
+                    ? 'bg-rose-100 text-rose-800'
+                    : isPermissionDenied
+                    ? 'bg-indigo-100 text-indigo-800'
+                    : 'bg-rose-100 text-rose-800'
+                }`}
+              >
+                {isNotPublished
+                  ? 'صفحة قيد النشر (Draft)'
+                  : isConnectionError
+                  ? 'خطأ في الاتصال (Connection Error)'
+                  : isPermissionDenied
+                  ? 'صلاحيات الوصول مقيدة'
+                  : 'خطأ 404 - غير موجود'}
+              </span>
+
               <h2 className="text-xl font-bold text-slate-900">
-                موقع الطبيب غير متاح
+                {isNotPublished
+                  ? 'الموقع الطبي قيد التجهيز والنشر'
+                  : isConnectionError
+                  ? 'تعذر الاتصال بقاعدة البيانات السحابية'
+                  : isPermissionDenied
+                  ? 'تعذر الوصول إلى الملف الطبي'
+                  : 'موقع الطبيب غير متاح'}
               </h2>
-              <p className="text-xs text-slate-400 font-mono dir-ltr">
-                {window.location.origin}/doctors/{publicNotFoundSlug}
+
+              <p className="text-xs text-slate-400 font-mono dir-ltr truncate max-w-full px-4">
+                {window.location.origin}/doctors/{publicError.slug}
               </p>
             </div>
-            
+
+            {/* Error Explanation */}
             <p className="text-xs text-slate-600 leading-relaxed">
-              عذراً، لم نتمكن من العثور على الصفحة المطلوبة. قد يكون الرابط غير صحيح، أو تم تغيير اسم النطاق، أو أن الصفحة قيد التجهيز والنشر.
+              {isNotPublished
+                ? 'تم تسجيل هذا الملف الطبي بنجاح في النظام، ولكنه حالياً في وضع المسودة (Draft) ولم يتم نشره للجمهور بعد من قِبل إدارة العيادة.'
+                : isConnectionError
+                ? 'حدث خطأ أثناء محاولة جلب بيانات الطبيب من خادم Firebase. يرجى التحقق من اتصال الإنترنت أو التأكد من إعدادات Vercel.'
+                : isPermissionDenied
+                ? 'قواعد حماية Firebase تمنع قراءة هذا السجل الطبي للعامة إلا إذا كانت حالته "منشور" (Published). تأكد من نشر الطبيب من لوحة تحكم CMS.'
+                : 'عذراً، لم نتمكن من العثور على أي طبيب مرتبط بهذا الرابط. قد يكون الرابط غير صحيح، أو تم تغيير اسم النطاق، أو أن الصفحة حُذفت.'}
             </p>
 
-            <div className="pt-2">
+            {publicError.message && isConnectionError && (
+              <div className="p-2.5 rounded-lg bg-slate-50 border border-slate-200 text-slate-500 font-mono text-[11px] text-right truncate">
+                {publicError.message}
+              </div>
+            )}
+
+            {/* Action Buttons */}
+            <div className="pt-2 flex items-center justify-center gap-2">
+              {isConnectionError || isPermissionDenied ? (
+                <button
+                  onClick={() => resolveRouteFromUrl()}
+                  className="inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-xl bg-teal-600 hover:bg-teal-700 text-white text-xs font-semibold transition shadow-xs"
+                >
+                  <RefreshCw className="w-3.5 h-3.5" />
+                  <span>إعادة المحاولة</span>
+                </button>
+              ) : null}
+
               <button
                 onClick={() => window.history.back()}
                 className="inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold transition"

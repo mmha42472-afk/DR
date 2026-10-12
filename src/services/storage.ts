@@ -9,6 +9,9 @@ import {
   setDoc,
   deleteDoc,
   getDoc,
+  query,
+  where,
+  limit,
   Firestore,
 } from 'firebase/firestore';
 import {
@@ -124,18 +127,48 @@ function setLocalDoctors(doctors: DoctorProfile[]): void {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(doctors));
 }
 
+export type DoctorFetchErrorType =
+  | 'not_found'
+  | 'not_published'
+  | 'permission_denied'
+  | 'connection_error'
+  | 'firebase_not_configured';
+
+export interface DoctorFetchResult {
+  doctor: DoctorProfile | null;
+  error?: DoctorFetchErrorType;
+  errorMessage?: string;
+  source: 'firestore' | 'local';
+}
+
 // API methods
 export async function getAllDoctors(): Promise<DoctorProfile[]> {
   // Try firestore if active
   if (firestoreInstance && currentFirebaseConfig) {
     try {
-      const snapshot = await getDocs(collection(firestoreInstance, 'doctors'));
+      const isAdmin = Boolean(authInstance?.currentUser);
       const list: DoctorProfile[] = [];
-      snapshot.forEach((d) => {
-        list.push(d.data() as DoctorProfile);
-      });
+
+      if (isAdmin) {
+        // Authenticated admin can list all profiles (published, draft, pending)
+        const snapshot = await getDocs(collection(firestoreInstance, 'doctors'));
+        snapshot.forEach((d) => {
+          list.push(d.data() as DoctorProfile);
+        });
+      } else {
+        // Public visitors query only published profiles to conform to Firestore rules
+        const qPublished = query(
+          collection(firestoreInstance, 'doctors'),
+          where('status', '==', 'published')
+        );
+        const snapshot = await getDocs(qPublished);
+        snapshot.forEach((d) => {
+          list.push(d.data() as DoctorProfile);
+        });
+      }
+
       if (list.length > 0) {
-        // Also keep local cache updated
+        // Keep local cache updated
         setLocalDoctors(list);
         return list;
       }
@@ -147,13 +180,20 @@ export async function getAllDoctors(): Promise<DoctorProfile[]> {
   return getLocalDoctors();
 }
 
-export async function getDoctorBySlug(slug: string): Promise<DoctorProfile | null> {
-  if (!slug) return null;
+/**
+ * Diagnostic loader for a doctor by slug or id, returning full diagnostic result
+ * Handles public visitor access, draft detection, network error differentiation, and local fallback.
+ */
+export async function fetchDoctorBySlugWithDiagnosis(slug: string): Promise<DoctorFetchResult> {
+  if (!slug) {
+    return { doctor: null, error: 'not_found', errorMessage: 'لم يتم تحديد رابط الطبيب', source: 'local' };
+  }
+
   let decoded = slug.trim().toLowerCase();
   try {
     decoded = decodeURIComponent(slug).trim().toLowerCase();
   } catch {
-    // Keep raw decoded if decodeURIComponent fails
+    // Keep decoded
   }
   const clean = decoded.replace(/^\/+|\/+$/g, '');
   const cleanWithoutDr = clean.replace(/^(dr[-_]|doctor[-_])/, '');
@@ -167,29 +207,222 @@ export async function getDoctorBySlug(slug: string): Promise<DoctorProfile | nul
     return (
       s === clean ||
       s === `dr-${clean}` ||
+      s === `dr-${cleanWithoutDr}` ||
       sWithoutDr === cleanWithoutDr ||
       id === clean ||
-      id === `doc-${clean}`
+      id === `doc-${clean}` ||
+      id === cleanWithoutDr
     );
   };
-  
+
+  const isAdmin = Boolean(authInstance?.currentUser);
+
+  // 1. Check Cloud Firestore if configured
   if (firestoreInstance && currentFirebaseConfig) {
     try {
-      const snapshot = await getDocs(collection(firestoreInstance, 'doctors'));
-      for (const d of snapshot.docs) {
-        const docData = d.data() as DoctorProfile;
-        if (matchesSlug(docData.slug, docData.id)) {
-          return docData;
+      if (isAdmin) {
+        // ---------------- ADMIN MODE (Can view published and draft doctors) ----------------
+        // A. Direct query by exact slug
+        try {
+          const q = query(
+            collection(firestoreInstance, 'doctors'),
+            where('slug', '==', clean),
+            limit(1)
+          );
+          const snap = await getDocs(q);
+          if (!snap.empty) {
+            return { doctor: snap.docs[0].data() as DoctorProfile, source: 'firestore' };
+          }
+        } catch (e) {
+          console.warn('Admin query by exact slug failed', e);
+        }
+
+        // B. Query variation with 'dr-' prefix
+        if (clean !== `dr-${cleanWithoutDr}`) {
+          try {
+            const q = query(
+              collection(firestoreInstance, 'doctors'),
+              where('slug', '==', `dr-${cleanWithoutDr}`),
+              limit(1)
+            );
+            const snap = await getDocs(q);
+            if (!snap.empty) {
+              return { doctor: snap.docs[0].data() as DoctorProfile, source: 'firestore' };
+            }
+          } catch {}
+        }
+
+        // C. Direct document get by ID
+        try {
+          const docRef = doc(firestoreInstance, 'doctors', clean);
+          const docSnap = await getDoc(docRef);
+          if (docSnap.exists()) {
+            return { doctor: docSnap.data() as DoctorProfile, source: 'firestore' };
+          }
+        } catch {}
+
+        // D. Full collection scan for admin
+        try {
+          const allSnap = await getDocs(collection(firestoreInstance, 'doctors'));
+          for (const d of allSnap.docs) {
+            const docData = d.data() as DoctorProfile;
+            if (matchesSlug(docData.slug, docData.id)) {
+              return { doctor: docData, source: 'firestore' };
+            }
+          }
+        } catch {}
+      } else {
+        // ---------------- PUBLIC VISITOR MODE ----------------
+        // Must query with status == 'published' to adhere strictly to Firestore security rules
+        const queryAttemptErrors: any[] = [];
+
+        // A. Query published doctor by exact slug
+        try {
+          const q = query(
+            collection(firestoreInstance, 'doctors'),
+            where('status', '==', 'published'),
+            where('slug', '==', clean),
+            limit(1)
+          );
+          const snap = await getDocs(q);
+          if (!snap.empty) {
+            return { doctor: snap.docs[0].data() as DoctorProfile, source: 'firestore' };
+          }
+        } catch (err: any) {
+          queryAttemptErrors.push(err);
+        }
+
+        // B. Query published doctor with 'dr-' prefix variation
+        if (clean !== `dr-${cleanWithoutDr}`) {
+          try {
+            const q = query(
+              collection(firestoreInstance, 'doctors'),
+              where('status', '==', 'published'),
+              where('slug', '==', `dr-${cleanWithoutDr}`),
+              limit(1)
+            );
+            const snap = await getDocs(q);
+            if (!snap.empty) {
+              return { doctor: snap.docs[0].data() as DoctorProfile, source: 'firestore' };
+            }
+          } catch (err: any) {
+            queryAttemptErrors.push(err);
+          }
+        }
+
+        // C. Query all published doctors and match in client
+        try {
+          const qPublished = query(
+            collection(firestoreInstance, 'doctors'),
+            where('status', '==', 'published')
+          );
+          const snapPublished = await getDocs(qPublished);
+          for (const d of snapPublished.docs) {
+            const docData = d.data() as DoctorProfile;
+            if (matchesSlug(docData.slug, docData.id)) {
+              return { doctor: docData, source: 'firestore' };
+            }
+          }
+        } catch (err: any) {
+          queryAttemptErrors.push(err);
+        }
+
+        // D. Try direct getDoc by ID
+        try {
+          const docRef = doc(firestoreInstance, 'doctors', clean);
+          const docSnap = await getDoc(docRef);
+          if (docSnap.exists()) {
+            const docData = docSnap.data() as DoctorProfile;
+            if (docData.status === 'published') {
+              return { doctor: docData, source: 'firestore' };
+            } else {
+              return {
+                doctor: null,
+                error: 'not_published',
+                errorMessage: 'هذا الموقع الطبي في وضع المسودة (Draft) ولم يتم نشره للجمهور بعد من قِبل إدارة النظام.',
+                source: 'firestore',
+              };
+            }
+          }
+        } catch (err: any) {
+          if (err?.code === 'permission-denied') {
+            // A permission-denied error on getDoc indicates the document exists but status != 'published'
+            return {
+              doctor: null,
+              error: 'not_published',
+              errorMessage: 'الموقع الطبي قيد التجهيز والنشر (مسودة غير منشورة). يرجى نشره من لوحة الإدارة.',
+              source: 'firestore',
+            };
+          }
+          queryAttemptErrors.push(err);
+        }
+
+        // If any error was permission-denied or network error:
+        const hasPermissionDenied = queryAttemptErrors.some(
+          (e) => e?.code === 'permission-denied' || String(e?.message).includes('permissions')
+        );
+        const hasNetworkError = queryAttemptErrors.some(
+          (e) => e?.code === 'unavailable' || String(e?.message).includes('network') || String(e?.message).includes('offline')
+        );
+
+        if (hasNetworkError) {
+          return {
+            doctor: null,
+            error: 'connection_error',
+            errorMessage: 'تعذر الاتصال بقاعدة بيانات Firebase السحابية. يرجى التحقق من اتصال الإنترنت.',
+            source: 'firestore',
+          };
+        }
+
+        if (hasPermissionDenied) {
+          return {
+            doctor: null,
+            error: 'permission_denied',
+            errorMessage: 'صلاحيات الوصول مقيدة. تأكد من أن الموقع منشور (Published) في لوحة الإدارة.',
+            source: 'firestore',
+          };
         }
       }
-    } catch (e) {
-      console.warn('Firestore query by slug failed, checking local storage', e);
+    } catch (e: any) {
+      console.warn('Firestore query by slug error', e);
+      if (e?.code === 'unavailable' || String(e?.message).includes('network')) {
+        return {
+          doctor: null,
+          error: 'connection_error',
+          errorMessage: 'فشل الاتصال بقاعدة البيانات السحابية.',
+          source: 'firestore',
+        };
+      }
     }
   }
 
+  // 2. Check Local Storage cache
   const doctors = getLocalDoctors();
   const found = doctors.find((d) => matchesSlug(d.slug, d.id));
-  return found ? JSON.parse(JSON.stringify(found)) : null;
+  if (found) {
+    if (found.status === 'published' || isAdmin) {
+      return { doctor: JSON.parse(JSON.stringify(found)), source: 'local' };
+    }
+    return {
+      doctor: null,
+      error: 'not_published',
+      errorMessage: 'هذا الموقع الطبي في وضع المسودة (Draft) في المتصفح ولم يُنشر للعامة بعد.',
+      source: 'local',
+    };
+  }
+
+  // 3. Not found anywhere
+  return {
+    doctor: null,
+    error: 'not_found',
+    errorMessage: `لم يتم العثور على أي طبيب مرتبط بالرابط: /doctors/${slug}`,
+    source: firestoreInstance ? 'firestore' : 'local',
+  };
+}
+
+export async function getDoctorBySlug(slug: string): Promise<DoctorProfile | null> {
+  const result = await fetchDoctorBySlugWithDiagnosis(slug);
+  return result.doctor;
 }
 
 export async function getDoctorById(id: string): Promise<DoctorProfile | null> {
