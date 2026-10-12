@@ -18,14 +18,19 @@ import {
   testAndSaveFirebaseConfig,
   disconnectFirebase,
   DatabaseStatus,
+  getAdminUser,
+  subscribeToAuthChanges,
+  adminSignOut,
+  AdminUser,
 } from './services/storage';
 import { Dashboard } from './components/dashboard/Dashboard';
 import { DoctorEditor, EditorTab } from './components/editor/DoctorEditor';
 import { WebsiteBuilder } from './components/builder/WebsiteBuilder';
 import { DoctorWebsite } from './components/public/DoctorWebsite';
-import { AlertCircle, ArrowRight, ShieldCheck, Stethoscope } from 'lucide-react';
+import { AdminLogin } from './components/auth/AdminLogin';
+import { AlertCircle, ArrowRight, ShieldCheck, Stethoscope, ArrowLeft } from 'lucide-react';
 
-type AppView = 'dashboard' | 'editor' | 'builder' | 'public_website';
+type AppView = 'dashboard' | 'editor' | 'builder' | 'public_website' | 'admin_preview';
 
 export default function App() {
   const [doctors, setDoctors] = useState<DoctorProfile[]>([]);
@@ -34,7 +39,17 @@ export default function App() {
   const [editorInitialTab, setEditorInitialTab] = useState<EditorTab>('basic');
   const [dbStatus, setDbStatus] = useState<DatabaseStatus>(getDatabaseStatus());
   const [loading, setLoading] = useState(true);
+  const [publicLoading, setPublicLoading] = useState(false);
   const [publicNotFoundSlug, setPublicNotFoundSlug] = useState<string | null>(null);
+  const [adminUser, setAdminUser] = useState<AdminUser | null>(getAdminUser());
+
+  // Subscribe to auth state changes
+  useEffect(() => {
+    const unsubscribe = subscribeToAuthChanges((user) => {
+      setAdminUser(user);
+    });
+    return () => unsubscribe();
+  }, []);
 
   // Load doctors from storage
   const loadDoctors = useCallback(async () => {
@@ -122,15 +137,20 @@ export default function App() {
         // Keep targetSlug as-is if decoding fails
       }
 
-      const doc = await getDoctorBySlug(targetSlug);
-      if (doc) {
-        setSelectedDoctor(doc);
-        setCurrentView('public_website');
-        setPublicNotFoundSlug(null);
-      } else {
-        setPublicNotFoundSlug(targetSlug);
-        setSelectedDoctor(null);
-        setCurrentView('public_website');
+      setPublicLoading(true);
+      try {
+        const doc = await getDoctorBySlug(targetSlug);
+        if (doc) {
+          setSelectedDoctor(doc);
+          setCurrentView('public_website');
+          setPublicNotFoundSlug(null);
+        } else {
+          setPublicNotFoundSlug(targetSlug);
+          setSelectedDoctor(null);
+          setCurrentView('public_website');
+        }
+      } finally {
+        setPublicLoading(false);
       }
     } else {
       setCurrentView('dashboard');
@@ -246,11 +266,10 @@ export default function App() {
     setCurrentView('builder');
   };
 
-  // Preview doctor website
+  // Preview doctor website from CMS (retains back to dashboard and edit buttons)
   const handlePreviewDoctor = (doctor: DoctorProfile) => {
     setSelectedDoctor(doctor);
-    setCurrentView('public_website');
-    window.history.pushState({}, '', `/doctors/${doctor.slug}`);
+    setCurrentView('admin_preview');
   };
 
   // Save doctor
@@ -293,6 +312,12 @@ export default function App() {
     disconnectFirebase();
     setDbStatus(getDatabaseStatus());
     loadDoctors();
+  };
+
+  // Admin Logout
+  const handleAdminLogout = async () => {
+    await adminSignOut();
+    setAdminUser(null);
   };
 
   // Export & Import
@@ -366,69 +391,52 @@ export default function App() {
     );
   }
 
-  // View: Public Website
+  // View: Public Website (Strict visitor mode - no admin bars, no edit buttons, no dashboard links)
   if (currentView === 'public_website') {
-    // 1. Slug not found
+    // 0. Public loading state
+    if (publicLoading) {
+      return (
+        <div dir="rtl" className="min-h-screen bg-slate-50 flex items-center justify-center p-4 font-sans text-slate-900">
+          <div className="text-center space-y-3 p-8 bg-white rounded-2xl border border-slate-200/90 shadow-xs max-w-sm w-full mx-4">
+            <div className="w-10 h-10 rounded-xl bg-teal-600 text-white mx-auto flex items-center justify-center">
+              <Stethoscope className="w-5 h-5 animate-pulse" />
+            </div>
+            <h2 className="text-sm font-bold text-slate-800">جارٍ تحميل موقع الطبيب...</h2>
+            <p className="text-xs text-slate-400 font-mono">يرجى الانتظار لحظات</p>
+          </div>
+        </div>
+      );
+    }
+
+    // 1. Slug not found (Visitor 404 - clean public error page without admin controls)
     if (!selectedDoctor && publicNotFoundSlug) {
       return (
-        <div dir="rtl" className="min-h-screen bg-slate-50 flex items-center justify-center p-4 font-sans">
-          <div className="max-w-lg w-full bg-white rounded-2xl p-6 sm:p-8 border border-slate-200/90 shadow-sm text-center space-y-4">
-            <div className="w-12 h-12 rounded-xl bg-rose-50 text-rose-600 mx-auto flex items-center justify-center">
-              <AlertCircle className="w-6 h-6" />
+        <div dir="rtl" className="min-h-screen bg-slate-50 flex items-center justify-center p-4 font-sans text-slate-900">
+          <div className="max-w-md w-full bg-white rounded-2xl p-6 sm:p-8 border border-slate-200/90 shadow-sm text-center space-y-5">
+            <div className="w-14 h-14 rounded-2xl bg-rose-50 text-rose-600 mx-auto flex items-center justify-center ring-8 ring-rose-50/50">
+              <AlertCircle className="w-7 h-7" />
             </div>
-            <div>
-              <h2 className="text-lg font-bold text-slate-900">
-                لم يتم العثور على موقع الطبيب المطلوب
+            <div className="space-y-1.5">
+              <span className="text-xs font-bold text-rose-600 uppercase tracking-wider">خطأ 404</span>
+              <h2 className="text-xl font-bold text-slate-900">
+                موقع الطبيب غير متاح
               </h2>
-              <p className="text-xs text-slate-500 font-mono dir-ltr mt-1">
+              <p className="text-xs text-slate-400 font-mono dir-ltr">
                 {window.location.origin}/doctors/{publicNotFoundSlug}
               </p>
             </div>
             
-            <p className="text-xs text-slate-600 leading-relaxed max-w-md mx-auto">
-              تأكد من صحة الرابط أو من حفظ ونشر الموقع عبر لوحة التحكم. إذا أنشأت الطبيب على جهاز آخر، تأكد من ربط قاعدة بيانات Firebase لمزامنة المواقع سحابياً عبر الإنترنت.
+            <p className="text-xs text-slate-600 leading-relaxed">
+              عذراً، لم نتمكن من العثور على الصفحة المطلوبة. قد يكون الرابط غير صحيح، أو تم تغيير اسم النطاق، أو أن الصفحة قيد التجهيز والنشر.
             </p>
 
-            {/* List of Available Registered Doctors */}
-            {doctors.length > 0 && (
-              <div className="text-right pt-3 border-t border-slate-100">
-                <span className="text-[11px] font-semibold text-slate-500 block mb-2">
-                  المواقع المتاحة حالياً على المنصة:
-                </span>
-                <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1">
-                  {doctors.map((d) => (
-                    <button
-                      key={d.id}
-                      onClick={() => navigateToDoctorPublic(d.slug)}
-                      className="w-full text-right p-2 rounded-lg bg-slate-50 hover:bg-teal-50 hover:border-teal-200 border border-slate-200/60 transition flex items-center justify-between text-xs group"
-                    >
-                      <div className="flex items-center gap-2">
-                        <div className="w-6 h-6 rounded-full bg-slate-200 text-slate-700 font-bold text-[10px] flex items-center justify-center">
-                          {d.fullName?.charAt(0) || 'ط'}
-                        </div>
-                        <div>
-                          <span className="font-semibold text-slate-900 group-hover:text-teal-800">
-                            {d.fullName || 'طبيب بدون اسم'}
-                          </span>
-                          <span className="text-[10px] text-slate-400 block">{d.specialty}</span>
-                        </div>
-                      </div>
-                      <span className="font-mono text-[10px] text-teal-600 dir-ltr">
-                        /doctors/{d.slug}
-                      </span>
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            <div className="pt-2 flex items-center justify-center gap-2">
+            <div className="pt-2">
               <button
-                onClick={navigateToDashboard}
-                className="px-4 py-2 rounded-lg bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold transition flex items-center justify-center gap-1.5"
+                onClick={() => window.history.back()}
+                className="inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold transition"
               >
-                <span>لوحة التحكم الرئيسية</span>
-                <ArrowRight className="w-3.5 h-3.5 rotate-180" />
+                <ArrowRight className="w-3.5 h-3.5" />
+                <span>العودة للصفحة السابقة</span>
               </button>
             </div>
           </div>
@@ -436,19 +444,39 @@ export default function App() {
       );
     }
 
+    // 2. Doctor found -> Render 100% public patient website (NO admin bar, NO dashboard button)
     if (selectedDoctor) {
       return (
         <DoctorWebsite
           doctor={selectedDoctor}
-          isAdminPreview={true}
-          onBackToDashboard={navigateToDashboard}
-          onEditDoctor={handleEditDoctor}
+          isAdminPreview={false}
         />
       );
     }
   }
 
-  // Default View: Admin Dashboard
+  // View: Admin Preview (Triggered explicitly from CMS Dashboard/Editor -> contains admin bar and back button)
+  if (currentView === 'admin_preview' && selectedDoctor) {
+    return (
+      <DoctorWebsite
+        doctor={selectedDoctor}
+        isAdminPreview={true}
+        onBackToDashboard={navigateToDashboard}
+        onEditDoctor={handleEditDoctor}
+      />
+    );
+  }
+
+  // ---------------- Protected CMS Area (Admin Login Required) ----------------
+  if (!adminUser) {
+    return (
+      <AdminLogin
+        onSuccess={(user) => setAdminUser(user)}
+      />
+    );
+  }
+
+  // Default View: Admin Dashboard (Authenticated Admin)
   return (
     <Dashboard
       doctors={doctors}
@@ -466,6 +494,8 @@ export default function App() {
       onExportJson={handleExportJson}
       onImportJson={handleImportJson}
       onResetDefaults={handleResetDefaults}
+      currentAdmin={adminUser}
+      onLogout={handleAdminLogout}
     />
   );
 }

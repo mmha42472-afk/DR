@@ -37,6 +37,7 @@ import {
   Sparkles,
   ChevronDown,
   Info,
+  LogOut,
 } from 'lucide-react';
 
 interface DashboardProps {
@@ -60,6 +61,8 @@ interface DashboardProps {
   onExportJson: () => void;
   onImportJson: (json: string) => Promise<number>;
   onResetDefaults: () => Promise<void>;
+  currentAdmin?: { email: string; uid: string; isFirebaseUser: boolean } | null;
+  onLogout?: () => void;
 }
 
 type NavigationTab = 'overview' | 'doctors' | 'analytics' | 'database';
@@ -80,6 +83,8 @@ export const Dashboard: React.FC<DashboardProps> = ({
   onExportJson,
   onImportJson,
   onResetDefaults,
+  currentAdmin,
+  onLogout,
 }) => {
   const [activeNav, setActiveNav] = useState<NavigationTab>('overview');
   const [searchQuery, setSearchQuery] = useState('');
@@ -338,15 +343,30 @@ export const Dashboard: React.FC<DashboardProps> = ({
               <Settings className="w-3.5 h-3.5 text-slate-400 shrink-0" />
             </button>
 
-            {/* Admin identity (sole admin, no doctor logins) */}
-            <div className="flex items-center gap-2.5 px-2 py-1.5">
-              <div className="w-7 h-7 rounded-full bg-slate-900 text-teal-400 flex items-center justify-center font-bold text-xs ring-1 ring-slate-200">
-                A
+            {/* Admin identity & Logout */}
+            <div className="flex items-center justify-between p-2 rounded-lg bg-slate-50 border border-slate-200/60">
+              <div className="flex items-center gap-2 min-w-0 flex-1">
+                <div className="w-7 h-7 rounded-full bg-slate-900 text-teal-400 flex items-center justify-center font-bold text-xs ring-1 ring-slate-200 shrink-0">
+                  {currentAdmin?.email?.charAt(0).toUpperCase() || 'A'}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="font-semibold text-xs text-slate-900 truncate" title={currentAdmin?.email || 'مسؤول النظام'}>
+                    {currentAdmin?.email || 'مسؤول النظام'}
+                  </p>
+                  <p className="text-[10px] text-slate-500 truncate">
+                    {currentAdmin?.isFirebaseUser ? 'Firebase Auth' : 'جلسة محلية'}
+                  </p>
+                </div>
               </div>
-              <div className="min-w-0 flex-1">
-                <p className="font-semibold text-xs text-slate-900 truncate">المسؤول الوحيد</p>
-                <p className="text-[10px] text-slate-500 truncate">لوحة تحكم مركزية</p>
-              </div>
+              {onLogout && (
+                <button
+                  onClick={onLogout}
+                  className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-md transition shrink-0"
+                  title="تسجيل الخروج من لوحة الإدارة"
+                >
+                  <LogOut className="w-3.5 h-3.5" />
+                </button>
+              )}
             </div>
           </div>
         </div>

@@ -11,9 +11,19 @@ import {
   getDoc,
   Firestore,
 } from 'firebase/firestore';
+import {
+  getAuth,
+  signInWithEmailAndPassword,
+  createUserWithEmailAndPassword,
+  signOut,
+  onAuthStateChanged,
+  User,
+  Auth,
+} from 'firebase/auth';
 
 const STORAGE_KEY = 'doctorbrand_cms_doctors_v1';
 const FIREBASE_CONFIG_KEY = 'doctorbrand_cms_firebase_config_v1';
+const ADMIN_SESSION_KEY = 'doctorbrand_cms_admin_session_v1';
 
 export type DatabaseMode = 'local' | 'firestore';
 
@@ -25,8 +35,9 @@ export interface DatabaseStatus {
   lastSyncTime?: string;
 }
 
-// Global cached Firestore instance if active
+// Global cached Firestore and Auth instance if active
 let firestoreInstance: Firestore | null = null;
+let authInstance: Auth | null = null;
 let currentFirebaseConfig: FirebaseConnectionConfig | null = null;
 
 // Initialize Firebase if config exists in environment or localStorage
@@ -69,10 +80,17 @@ function setupFirestoreInstance(config: FirebaseConnectionConfig) {
   try {
     const app = getApps().length === 0 ? initializeApp(config) : getApp();
     firestoreInstance = getFirestore(app);
+    try {
+      authInstance = getAuth(app);
+    } catch (authErr) {
+      console.warn('Firebase Auth initialize warning', authErr);
+      authInstance = null;
+    }
     return firestoreInstance;
   } catch (e) {
     console.error('Failed to initialize Firebase instance', e);
     firestoreInstance = null;
+    authInstance = null;
     return null;
   }
 }
@@ -414,6 +432,7 @@ export function disconnectFirebase(): void {
   localStorage.removeItem(FIREBASE_CONFIG_KEY);
   currentFirebaseConfig = null;
   firestoreInstance = null;
+  authInstance = null;
 }
 
 export function getDatabaseStatus(): DatabaseStatus {
@@ -433,3 +452,129 @@ export function getDatabaseStatus(): DatabaseStatus {
     config: null,
   };
 }
+
+// ---------------- Admin Authentication Services ----------------
+
+export interface AdminUser {
+  email: string;
+  uid: string;
+  isFirebaseUser: boolean;
+}
+
+// Check initial local session if stored
+function getStoredAdminSession(): AdminUser | null {
+  try {
+    const raw = localStorage.getItem(ADMIN_SESSION_KEY);
+    if (raw) {
+      return JSON.parse(raw);
+    }
+  } catch {
+    // Ignore parse error
+  }
+  return null;
+}
+
+export function getAdminUser(): AdminUser | null {
+  if (authInstance && authInstance.currentUser) {
+    const u = authInstance.currentUser;
+    return {
+      email: u.email || 'admin@doctorbrand.med',
+      uid: u.uid,
+      isFirebaseUser: true,
+    };
+  }
+  return getStoredAdminSession();
+}
+
+export function subscribeToAuthChanges(callback: (user: AdminUser | null) => void): () => void {
+  if (authInstance) {
+    const unsubscribe = onAuthStateChanged(authInstance, (user) => {
+      if (user) {
+        const admin: AdminUser = {
+          email: user.email || 'admin@doctorbrand.med',
+          uid: user.uid,
+          isFirebaseUser: true,
+        };
+        localStorage.setItem(ADMIN_SESSION_KEY, JSON.stringify(admin));
+        callback(admin);
+      } else {
+        const stored = getStoredAdminSession();
+        // If stored was marked as firebase user, clear it
+        if (stored?.isFirebaseUser) {
+          localStorage.removeItem(ADMIN_SESSION_KEY);
+          callback(null);
+        } else {
+          callback(stored);
+        }
+      }
+    });
+    return unsubscribe;
+  }
+
+  // Local fallback
+  callback(getStoredAdminSession());
+  return () => {};
+}
+
+export async function adminSignIn(email: string, pass: string): Promise<AdminUser> {
+  const cleanEmail = email.trim();
+
+  // If Firebase Auth is initialized and configured, try Firebase Auth first
+  if (authInstance && currentFirebaseConfig) {
+    try {
+      const cred = await signInWithEmailAndPassword(authInstance, cleanEmail, pass);
+      const user: AdminUser = {
+        email: cred.user.email || cleanEmail,
+        uid: cred.user.uid,
+        isFirebaseUser: true,
+      };
+      localStorage.setItem(ADMIN_SESSION_KEY, JSON.stringify(user));
+      return user;
+    } catch (firebaseErr: unknown) {
+      const errCode = (firebaseErr as { code?: string })?.code;
+      // If user does not exist yet in Firebase project, attempt initial admin registration
+      if (errCode === 'auth/user-not-found' || errCode === 'auth/invalid-credential') {
+        try {
+          const newCred = await createUserWithEmailAndPassword(authInstance, cleanEmail, pass);
+          const user: AdminUser = {
+            email: newCred.user.email || cleanEmail,
+            uid: newCred.user.uid,
+            isFirebaseUser: true,
+          };
+          localStorage.setItem(ADMIN_SESSION_KEY, JSON.stringify(user));
+          return user;
+        } catch {
+          // If creation also failed with invalid credential, throw the error
+          throw firebaseErr;
+        }
+      }
+      throw firebaseErr;
+    }
+  }
+
+  // Local Mode Authentication (when no Firebase connected or in offline demo mode)
+  // Accepts standard admin credentials or saves new admin credential
+  if (!cleanEmail || !pass || pass.length < 4) {
+    throw new Error('يرجى إدخال بريد إلكتروني صالح وكلمة مرور لا تقل عن 4 أحرف.');
+  }
+
+  const localUser: AdminUser = {
+    email: cleanEmail,
+    uid: 'local-admin-' + Math.random().toString(36).substring(2, 8),
+    isFirebaseUser: false,
+  };
+  localStorage.setItem(ADMIN_SESSION_KEY, JSON.stringify(localUser));
+  return localUser;
+}
+
+export async function adminSignOut(): Promise<void> {
+  if (authInstance) {
+    try {
+      await signOut(authInstance);
+    } catch (e) {
+      console.warn('Firebase signOut error', e);
+    }
+  }
+  localStorage.removeItem(ADMIN_SESSION_KEY);
+}
+
