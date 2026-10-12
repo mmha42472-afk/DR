@@ -360,6 +360,17 @@ export const DoctorEditor: React.FC<DoctorEditorProps> = ({
             </span>
           )}
 
+          <a
+            href={`/doctors/${doctor.slug}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 text-slate-700 hover:bg-slate-100 text-xs font-medium transition"
+            title="فتح موقع الطبيب في علامة تبويب جديدة"
+          >
+            <ExternalLink className="w-3.5 h-3.5 text-teal-600" />
+            <span>زيارة الموقع</span>
+          </a>
+
           <button
             onClick={() => onPreviewPublic(doctor)}
             className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 text-slate-700 hover:bg-slate-100 text-xs font-medium transition"
@@ -516,7 +527,24 @@ export const DoctorEditor: React.FC<DoctorEditorProps> = ({
                         }`}
                       />
                     </div>
-                    {slugError && <p className="text-[11px] text-rose-600 mt-1">{slugError}</p>}
+                    {slugError ? (
+                      <p className="text-[11px] text-rose-600 mt-1">{slugError}</p>
+                    ) : doctor.slug ? (
+                      <div className="mt-1.5 flex items-center justify-between text-[11px] text-slate-500 bg-slate-100/80 px-2.5 py-1.5 rounded-lg border border-slate-200">
+                        <span className="font-mono dir-ltr truncate text-slate-700">
+                          {window.location.origin}/doctors/{doctor.slug}
+                        </span>
+                        <a
+                          href={`/doctors/${doctor.slug}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-teal-700 hover:text-teal-900 font-semibold inline-flex items-center gap-1 shrink-0 mr-2"
+                        >
+                          <span>فتح الموقع</span>
+                          <ExternalLink className="w-3 h-3" />
+                        </a>
+                      </div>
+                    ) : null}
                   </div>
 
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">

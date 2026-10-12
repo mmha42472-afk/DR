@@ -691,16 +691,31 @@ export const Dashboard: React.FC<DashboardProps> = ({
                               </div>
                             </td>
 
-                            {/* Custom URL Slug */}
+                            {/* Custom URL Slug - Clickable link to doctor's website */}
                             <td className="py-3 px-4">
-                              <div className="flex items-center gap-1.5 font-mono text-[11px] text-slate-600">
-                                <span className="truncate max-w-[140px] dir-ltr text-left">
-                                  /doctors/{doc.slug}
-                                </span>
+                              <div className="flex items-center gap-1.5 font-mono text-[11px]">
+                                <a
+                                  href={`/doctors/${doc.slug}`}
+                                  onClick={(e) => {
+                                    if (!e.ctrlKey && !e.metaKey && !e.shiftKey && onOpenPublicUrl) {
+                                      e.preventDefault();
+                                      onOpenPublicUrl(doc.slug);
+                                    }
+                                  }}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="inline-flex items-center gap-1 text-teal-700 hover:text-teal-900 font-medium hover:underline bg-teal-50/70 hover:bg-teal-100/70 px-2 py-0.5 rounded transition"
+                                  title="اضغط لفتح موقع الطبيب (أو بالزر الأيمن لفتحه في تبويب جديد)"
+                                >
+                                  <span className="truncate max-w-[130px] dir-ltr text-left">
+                                    /doctors/{doc.slug}
+                                  </span>
+                                  <ExternalLink className="w-3 h-3 shrink-0 text-teal-600" />
+                                </a>
                                 <button
                                   onClick={() => handleCopyLink(doc.slug)}
-                                  title="نسخ الرابط المباشر"
-                                  className="text-slate-400 hover:text-slate-700 p-0.5 rounded transition"
+                                  title="نسخ الرابط المباشر لمشاركته"
+                                  className="text-slate-400 hover:text-slate-700 p-1 rounded hover:bg-slate-100 transition shrink-0"
                                 >
                                   {copiedSlug === doc.slug ? (
                                     <Check className="w-3.5 h-3.5 text-emerald-600" />
@@ -758,6 +773,17 @@ export const Dashboard: React.FC<DashboardProps> = ({
                                 >
                                   <Edit3 className="w-3.5 h-3.5" />
                                 </button>
+
+                                {/* Open in new tab */}
+                                <a
+                                  href={`/doctors/${doc.slug}`}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="p-1.5 text-slate-600 hover:text-teal-700 hover:bg-slate-100 rounded-md transition"
+                                  title="فتح موقع الطبيب في علامة تبويب جديدة"
+                                >
+                                  <ExternalLink className="w-3.5 h-3.5" />
+                                </a>
 
                                 {/* Live Preview / Public View */}
                                 <button

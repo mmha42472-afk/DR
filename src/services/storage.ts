@@ -29,9 +29,27 @@ export interface DatabaseStatus {
 let firestoreInstance: Firestore | null = null;
 let currentFirebaseConfig: FirebaseConnectionConfig | null = null;
 
-// Initialize Firebase if config exists in localStorage or environment
+// Initialize Firebase if config exists in environment or localStorage
 export function initFirebaseConfig(): FirebaseConnectionConfig | null {
   try {
+    // 1. Check Vite / Vercel Environment Variables
+    const envApiKey = (import.meta as unknown as { env?: Record<string, string> }).env?.VITE_FIREBASE_API_KEY;
+    const envProjectId = (import.meta as unknown as { env?: Record<string, string> }).env?.VITE_FIREBASE_PROJECT_ID;
+    if (envApiKey && envProjectId) {
+      const envConfig: FirebaseConnectionConfig = {
+        apiKey: envApiKey,
+        projectId: envProjectId,
+        authDomain: (import.meta as unknown as { env?: Record<string, string> }).env?.VITE_FIREBASE_AUTH_DOMAIN || `${envProjectId}.firebaseapp.com`,
+        storageBucket: (import.meta as unknown as { env?: Record<string, string> }).env?.VITE_FIREBASE_STORAGE_BUCKET || `${envProjectId}.appspot.com`,
+        messagingSenderId: (import.meta as unknown as { env?: Record<string, string> }).env?.VITE_FIREBASE_MESSAGING_SENDER_ID || '',
+        appId: (import.meta as unknown as { env?: Record<string, string> }).env?.VITE_FIREBASE_APP_ID || '',
+      };
+      setupFirestoreInstance(envConfig);
+      currentFirebaseConfig = envConfig;
+      return envConfig;
+    }
+
+    // 2. Check LocalStorage configuration saved by admin
     const raw = localStorage.getItem(FIREBASE_CONFIG_KEY);
     if (raw) {
       const config = JSON.parse(raw) as FirebaseConnectionConfig;
@@ -42,7 +60,7 @@ export function initFirebaseConfig(): FirebaseConnectionConfig | null {
       }
     }
   } catch (e) {
-    console.error('Failed reading firebase config from localStorage', e);
+    console.error('Failed reading firebase config', e);
   }
   return null;
 }
@@ -112,14 +130,37 @@ export async function getAllDoctors(): Promise<DoctorProfile[]> {
 }
 
 export async function getDoctorBySlug(slug: string): Promise<DoctorProfile | null> {
-  const normalizedSlug = slug.trim().toLowerCase();
+  if (!slug) return null;
+  let decoded = slug.trim().toLowerCase();
+  try {
+    decoded = decodeURIComponent(slug).trim().toLowerCase();
+  } catch {
+    // Keep raw decoded if decodeURIComponent fails
+  }
+  const clean = decoded.replace(/^\/+|\/+$/g, '');
+  const cleanWithoutDr = clean.replace(/^(dr[-_]|doctor[-_])/, '');
+
+  const matchesSlug = (docSlug?: string, docId?: string) => {
+    if (!docSlug && !docId) return false;
+    const s = (docSlug || '').toLowerCase().trim();
+    const sWithoutDr = s.replace(/^(dr[-_]|doctor[-_])/, '');
+    const id = (docId || '').toLowerCase().trim();
+
+    return (
+      s === clean ||
+      s === `dr-${clean}` ||
+      sWithoutDr === cleanWithoutDr ||
+      id === clean ||
+      id === `doc-${clean}`
+    );
+  };
   
   if (firestoreInstance && currentFirebaseConfig) {
     try {
       const snapshot = await getDocs(collection(firestoreInstance, 'doctors'));
       for (const d of snapshot.docs) {
         const docData = d.data() as DoctorProfile;
-        if (docData.slug && docData.slug.toLowerCase() === normalizedSlug) {
+        if (matchesSlug(docData.slug, docData.id)) {
           return docData;
         }
       }
@@ -129,7 +170,7 @@ export async function getDoctorBySlug(slug: string): Promise<DoctorProfile | nul
   }
 
   const doctors = getLocalDoctors();
-  const found = doctors.find((d) => d.slug.toLowerCase() === normalizedSlug);
+  const found = doctors.find((d) => matchesSlug(d.slug, d.id));
   return found ? JSON.parse(JSON.stringify(found)) : null;
 }
 

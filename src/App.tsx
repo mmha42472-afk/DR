@@ -49,26 +49,79 @@ export default function App() {
     }
   }, []);
 
-  // Handle URL route resolution
+  // Handle URL route resolution with support for /doctors/:slug, /doctor/:slug, /dr/:slug, root /:slug, and query params
   const resolveRouteFromUrl = useCallback(async () => {
     const path = window.location.pathname;
     const hash = window.location.hash;
+    const search = window.location.search;
 
     let targetSlug: string | null = null;
 
-    // Check pathname: e.g. /doctors/dr-ahmed
-    const pathMatch = path.match(/^\/doctors\/([a-zA-Z0-9_-]+)/);
-    if (pathMatch && pathMatch[1]) {
-      targetSlug = pathMatch[1];
-    } else {
-      // Check hash: e.g. #/doctors/dr-ahmed or #doctors/dr-ahmed
-      const hashMatch = hash.match(/^#\/?doctors\/([a-zA-Z0-9_-]+)/);
-      if (hashMatch && hashMatch[1]) {
-        targetSlug = hashMatch[1];
+    // 1. Check query parameters: ?doctor=dr-ahmed, ?slug=dr-ahmed, or ?d=dr-ahmed
+    try {
+      const searchParams = new URLSearchParams(search);
+      const querySlug = searchParams.get('doctor') || searchParams.get('slug') || searchParams.get('d');
+      if (querySlug) {
+        targetSlug = querySlug.trim();
+      }
+    } catch {
+      // ignore query parsing errors
+    }
+
+    // 2. Check pathname patterns:
+    if (!targetSlug) {
+      // Check /doctors/:slug or /doctor/:slug or /dr/:slug
+      const prefixMatch = path.match(/^\/(?:doctors|doctor|dr)\/([^/?#]+)/i);
+      if (prefixMatch && prefixMatch[1]) {
+        targetSlug = prefixMatch[1];
+      } else {
+        // Check single segment root path e.g. /dr-ahmed (excluding reserved words)
+        const singleMatch = path.match(/^\/([^/?#]+)/);
+        if (singleMatch && singleMatch[1]) {
+          const candidate = singleMatch[1].toLowerCase().trim();
+          const reserved = [
+            'dashboard',
+            'admin',
+            'builder',
+            'editor',
+            'api',
+            'assets',
+            'favicon.ico',
+            'index.html',
+            'robots.txt',
+            'sitemap.xml',
+          ];
+          if (!reserved.includes(candidate)) {
+            targetSlug = singleMatch[1];
+          }
+        }
+      }
+    }
+
+    // 3. Check hash patterns: #/doctors/:slug, #doctor/:slug, #/:slug
+    if (!targetSlug && hash) {
+      const hashPrefixMatch = hash.match(/^#\/?(?:doctors|doctor|dr)\/([^/?#]+)/i);
+      if (hashPrefixMatch && hashPrefixMatch[1]) {
+        targetSlug = hashPrefixMatch[1];
+      } else {
+        const hashSingleMatch = hash.match(/^#\/?([^/?#]+)/);
+        if (hashSingleMatch && hashSingleMatch[1]) {
+          const candidate = hashSingleMatch[1].toLowerCase().trim();
+          const reserved = ['dashboard', 'admin', 'builder', 'editor'];
+          if (!reserved.includes(candidate)) {
+            targetSlug = hashSingleMatch[1];
+          }
+        }
       }
     }
 
     if (targetSlug) {
+      try {
+        targetSlug = decodeURIComponent(targetSlug).trim();
+      } catch {
+        // Keep targetSlug as-is if decoding fails
+      }
+
       const doc = await getDoctorBySlug(targetSlug);
       if (doc) {
         setSelectedDoctor(doc);
@@ -319,25 +372,62 @@ export default function App() {
     if (!selectedDoctor && publicNotFoundSlug) {
       return (
         <div dir="rtl" className="min-h-screen bg-slate-50 flex items-center justify-center p-4 font-sans">
-          <div className="max-w-md w-full bg-white rounded-xl p-6 border border-slate-200 shadow-sm text-center space-y-3">
-            <div className="w-10 h-10 rounded-lg bg-rose-50 text-rose-600 mx-auto flex items-center justify-center">
-              <AlertCircle className="w-5 h-5" />
+          <div className="max-w-lg w-full bg-white rounded-2xl p-6 sm:p-8 border border-slate-200/90 shadow-sm text-center space-y-4">
+            <div className="w-12 h-12 rounded-xl bg-rose-50 text-rose-600 mx-auto flex items-center justify-center">
+              <AlertCircle className="w-6 h-6" />
             </div>
-            <h2 className="text-base font-bold text-slate-900">
-              لم يتم العثور على موقع الطبيب المطلوب
-            </h2>
-            <p className="text-xs text-slate-500 font-mono dir-ltr">
-              /doctors/{publicNotFoundSlug}
+            <div>
+              <h2 className="text-lg font-bold text-slate-900">
+                لم يتم العثور على موقع الطبيب المطلوب
+              </h2>
+              <p className="text-xs text-slate-500 font-mono dir-ltr mt-1">
+                {window.location.origin}/doctors/{publicNotFoundSlug}
+              </p>
+            </div>
+            
+            <p className="text-xs text-slate-600 leading-relaxed max-w-md mx-auto">
+              تأكد من صحة الرابط أو من حفظ ونشر الموقع عبر لوحة التحكم. إذا أنشأت الطبيب على جهاز آخر، تأكد من ربط قاعدة بيانات Firebase لمزامنة المواقع سحابياً عبر الإنترنت.
             </p>
-            <p className="text-xs text-slate-600 leading-relaxed">
-              تأكد من صحة الرابط أو من قيام المسؤول بنشر الموقع للجمهور عبر لوحة التحكم.
-            </p>
-            <div className="pt-2">
+
+            {/* List of Available Registered Doctors */}
+            {doctors.length > 0 && (
+              <div className="text-right pt-3 border-t border-slate-100">
+                <span className="text-[11px] font-semibold text-slate-500 block mb-2">
+                  المواقع المتاحة حالياً على المنصة:
+                </span>
+                <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1">
+                  {doctors.map((d) => (
+                    <button
+                      key={d.id}
+                      onClick={() => navigateToDoctorPublic(d.slug)}
+                      className="w-full text-right p-2 rounded-lg bg-slate-50 hover:bg-teal-50 hover:border-teal-200 border border-slate-200/60 transition flex items-center justify-between text-xs group"
+                    >
+                      <div className="flex items-center gap-2">
+                        <div className="w-6 h-6 rounded-full bg-slate-200 text-slate-700 font-bold text-[10px] flex items-center justify-center">
+                          {d.fullName?.charAt(0) || 'ط'}
+                        </div>
+                        <div>
+                          <span className="font-semibold text-slate-900 group-hover:text-teal-800">
+                            {d.fullName || 'طبيب بدون اسم'}
+                          </span>
+                          <span className="text-[10px] text-slate-400 block">{d.specialty}</span>
+                        </div>
+                      </div>
+                      <span className="font-mono text-[10px] text-teal-600 dir-ltr">
+                        /doctors/{d.slug}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <div className="pt-2 flex items-center justify-center gap-2">
               <button
                 onClick={navigateToDashboard}
-                className="px-4 py-2 rounded-lg bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold transition flex items-center justify-center gap-1.5 mx-auto"
+                className="px-4 py-2 rounded-lg bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold transition flex items-center justify-center gap-1.5"
               >
-                <span>العودة للوحة التحكم الرئيسية</span>
+                <span>لوحة التحكم الرئيسية</span>
                 <ArrowRight className="w-3.5 h-3.5 rotate-180" />
               </button>
             </div>

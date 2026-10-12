@@ -306,20 +306,25 @@ export const WebsiteBuilder: React.FC<WebsiteBuilderProps> = ({
 
           <div className="h-4 w-px bg-slate-800" />
 
-          <div className="flex items-center gap-2">
             <span className="font-bold text-sm text-white truncate max-w-[200px]">
               {currentDoctor.fullName || 'طبيب بدون اسم'}
             </span>
-            <span className="text-[11px] px-2 py-0.5 rounded font-mono bg-slate-800 text-slate-300">
-              /doctors/{currentDoctor.slug}
-            </span>
+            <a
+              href={`/doctors/${currentDoctor.slug}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-[11px] px-2 py-0.5 rounded font-mono bg-slate-800 hover:bg-slate-700 text-teal-400 hover:text-teal-300 transition inline-flex items-center gap-1"
+              title="فتح الرابط المباشر في تبويب جديد"
+            >
+              <span>/doctors/{currentDoctor.slug}</span>
+              <ExternalLink className="w-2.5 h-2.5 shrink-0" />
+            </a>
             {hasUnsavedChanges && (
               <span className="text-[10px] text-amber-400 font-medium flex items-center gap-1 bg-amber-950/60 border border-amber-800/60 px-2 py-0.5 rounded">
                 <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
                 <span>تعديلات غير محفوظة</span>
               </span>
             )}
-          </div>
         </div>
 
         {/* Center Toolbar: Viewport switcher & Language & Undo / Redo */}
@@ -411,16 +416,17 @@ export const WebsiteBuilder: React.FC<WebsiteBuilderProps> = ({
             </div>
           )}
 
-          {onOpenPublicUrl && (
-            <button
-              onClick={onOpenPublicUrl}
-              className="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-medium border border-slate-700 transition flex items-center gap-1"
-              title="معاينة الموقع كزائر"
-            >
-              <span>معاينة الرابط</span>
-              <ExternalLink className="w-3.5 h-3.5" />
-            </button>
-          )}
+          {/* Direct link to visit the website in new tab */}
+          <a
+            href={`/doctors/${currentDoctor.slug}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white text-xs font-medium border border-slate-700 transition flex items-center gap-1.5"
+            title="فتح موقع الطبيب في علامة تبويب جديدة كزائر"
+          >
+            <span>زيارة الموقع</span>
+            <ExternalLink className="w-3.5 h-3.5 text-teal-400" />
+          </a>
 
           <button
             onClick={handleSaveDraft}
