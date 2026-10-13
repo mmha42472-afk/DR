@@ -235,7 +235,7 @@ export default function App() {
     setPublicError(null);
   };
 
-  // Create new blank doctor (defaults to published so public link works immediately upon creation)
+  // New doctor profiles stay private until an administrator explicitly publishes them.
   const handleAddNewDoctor = () => {
     const newId = 'doc-' + Date.now();
     const blankDoctor: DoctorProfile = {
@@ -286,7 +286,7 @@ export default function App() {
         metaTitle: '',
         metaDescription: '',
       },
-      status: 'published',
+      status: 'draft',
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
       isDemo: false,
