@@ -17,7 +17,7 @@ import {
 import {
   getAuth,
   signInWithEmailAndPassword,
-  createUserWithEmailAndPassword,
+  getIdTokenResult,
   signOut,
   onAuthStateChanged,
   User,
@@ -146,7 +146,9 @@ export async function getAllDoctors(): Promise<DoctorProfile[]> {
   // Try firestore if active
   if (firestoreInstance && currentFirebaseConfig) {
     try {
-      const isAdmin = Boolean(authInstance?.currentUser);
+      const currentUser = authInstance?.currentUser;
+      const token = currentUser ? await getIdTokenResult(currentUser) : null;
+      const isAdmin = token?.claims.admin === true;
       const list: DoctorProfile[] = [];
 
       if (isAdmin) {
@@ -215,7 +217,9 @@ export async function fetchDoctorBySlugWithDiagnosis(slug: string): Promise<Doct
     );
   };
 
-  const isAdmin = Boolean(authInstance?.currentUser);
+  const currentUser = authInstance?.currentUser;
+  const token = currentUser ? await getIdTokenResult(currentUser) : null;
+  const isAdmin = token?.claims.admin === true;
 
   // 1. Check Cloud Firestore if configured
   if (firestoreInstance && currentFirebaseConfig) {
@@ -695,109 +699,70 @@ export interface AdminUser {
 }
 
 // Check initial local session if stored
-function getStoredAdminSession(): AdminUser | null {
-  try {
-    const raw = localStorage.getItem(ADMIN_SESSION_KEY);
-    if (raw) {
-      return JSON.parse(raw);
-    }
-  } catch {
-    // Ignore parse error
-  }
+export function getAdminUser(): AdminUser | null {
+  // Authorization is resolved asynchronously from Firebase ID token claims by
+  // subscribeToAuthChanges. Never trust a browser-stored session as an admin role.
   return null;
 }
 
-export function getAdminUser(): AdminUser | null {
-  if (authInstance && authInstance.currentUser) {
-    const u = authInstance.currentUser;
-    return {
-      email: u.email || 'admin@doctorbrand.med',
-      uid: u.uid,
-      isFirebaseUser: true,
-    };
-  }
-  return getStoredAdminSession();
-}
-
 export function subscribeToAuthChanges(callback: (user: AdminUser | null) => void): () => void {
-  if (authInstance) {
-    const unsubscribe = onAuthStateChanged(authInstance, (user) => {
-      if (user) {
-        const admin: AdminUser = {
-          email: user.email || 'admin@doctorbrand.med',
-          uid: user.uid,
-          isFirebaseUser: true,
-        };
-        localStorage.setItem(ADMIN_SESSION_KEY, JSON.stringify(admin));
-        callback(admin);
-      } else {
-        const stored = getStoredAdminSession();
-        // If stored was marked as firebase user, clear it
-        if (stored?.isFirebaseUser) {
-          localStorage.removeItem(ADMIN_SESSION_KEY);
-          callback(null);
-        } else {
-          callback(stored);
-        }
-      }
-    });
-    return unsubscribe;
+  if (!authInstance) {
+    callback(null);
+    return () => {};
   }
 
-  // Local fallback
-  callback(getStoredAdminSession());
-  return () => {};
+  return onAuthStateChanged(authInstance, async (user) => {
+    if (!user) {
+      localStorage.removeItem(ADMIN_SESSION_KEY);
+      callback(null);
+      return;
+    }
+
+    try {
+      const token = await getIdTokenResult(user);
+      if (token.claims.admin !== true) {
+        localStorage.removeItem(ADMIN_SESSION_KEY);
+        await signOut(authInstance!);
+        callback(null);
+        return;
+      }
+
+      const admin: AdminUser = {
+        email: user.email || 'admin@doctorbrand.med',
+        uid: user.uid,
+        isFirebaseUser: true,
+      };
+      localStorage.setItem(ADMIN_SESSION_KEY, JSON.stringify(admin));
+      callback(admin);
+    } catch (error) {
+      console.warn('Unable to verify Firebase administrator claim', error);
+      localStorage.removeItem(ADMIN_SESSION_KEY);
+      callback(null);
+    }
+  });
 }
 
 export async function adminSignIn(email: string, pass: string): Promise<AdminUser> {
   const cleanEmail = email.trim();
-
-  // If Firebase Auth is initialized and configured, try Firebase Auth first
-  if (authInstance && currentFirebaseConfig) {
-    try {
-      const cred = await signInWithEmailAndPassword(authInstance, cleanEmail, pass);
-      const user: AdminUser = {
-        email: cred.user.email || cleanEmail,
-        uid: cred.user.uid,
-        isFirebaseUser: true,
-      };
-      localStorage.setItem(ADMIN_SESSION_KEY, JSON.stringify(user));
-      return user;
-    } catch (firebaseErr: unknown) {
-      const errCode = (firebaseErr as { code?: string })?.code;
-      // If user does not exist yet in Firebase project, attempt initial admin registration
-      if (errCode === 'auth/user-not-found' || errCode === 'auth/invalid-credential') {
-        try {
-          const newCred = await createUserWithEmailAndPassword(authInstance, cleanEmail, pass);
-          const user: AdminUser = {
-            email: newCred.user.email || cleanEmail,
-            uid: newCred.user.uid,
-            isFirebaseUser: true,
-          };
-          localStorage.setItem(ADMIN_SESSION_KEY, JSON.stringify(user));
-          return user;
-        } catch {
-          // If creation also failed with invalid credential, throw the error
-          throw firebaseErr;
-        }
-      }
-      throw firebaseErr;
-    }
+  if (!authInstance || !currentFirebaseConfig) {
+    throw new Error('إعداد Firebase Authentication مطلوب لتسجيل دخول المسؤول.');
   }
 
-  // Local Mode Authentication (when no Firebase connected or in offline demo mode)
-  // Accepts standard admin credentials or saves new admin credential
-  if (!cleanEmail || !pass || pass.length < 4) {
-    throw new Error('يرجى إدخال بريد إلكتروني صالح وكلمة مرور لا تقل عن 4 أحرف.');
+  const credential = await signInWithEmailAndPassword(authInstance, cleanEmail, pass);
+  const token = await getIdTokenResult(credential.user);
+  if (token.claims.admin !== true) {
+    await signOut(authInstance);
+    localStorage.removeItem(ADMIN_SESSION_KEY);
+    throw new Error('هذا الحساب غير مخول للوصول إلى لوحة الإدارة.');
   }
 
-  const localUser: AdminUser = {
-    email: cleanEmail,
-    uid: 'local-admin-' + Math.random().toString(36).substring(2, 8),
-    isFirebaseUser: false,
+  const user: AdminUser = {
+    email: credential.user.email || cleanEmail,
+    uid: credential.user.uid,
+    isFirebaseUser: true,
   };
-  localStorage.setItem(ADMIN_SESSION_KEY, JSON.stringify(localUser));
-  return localUser;
+  localStorage.setItem(ADMIN_SESSION_KEY, JSON.stringify(user));
+  return user;
 }
 
 export async function adminSignOut(): Promise<void> {
