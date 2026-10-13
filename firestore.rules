@@ -1,15 +1,10 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-
-    // Default deny catch-all
-    match /{document=**} {
-      allow read, write: if false;
-    }
-
-    // Helper functions
-    function isSignedIn() {
-      return request.auth != null;
+    // Authentication alone does not grant administrator access. Administrators
+    // must receive the custom claim from a trusted Firebase Admin SDK process.
+    function isAdmin() {
+      return request.auth != null && request.auth.token.admin == true;
     }
 
     function isValidId(id) {
@@ -18,32 +13,40 @@ service cloud.firestore {
 
     function isValidDoctor(data) {
       return data.id is string
-        && data.slug is string && data.slug.size() <= 120
-        && data.fullName is string && data.fullName.size() <= 200
-        && data.specialty is string && data.specialty.size() <= 200
+        && data.slug is string
+        && data.slug.size() <= 120
+        && data.slug.matches('^[a-z0-9]+(?:-[a-z0-9]+)*$')
+        && data.fullName is string
+        && data.fullName.size() <= 200
+        && data.specialty is string
+        && data.specialty.size() <= 200
         && data.status in ['draft', 'pending', 'published'];
     }
 
-    // Doctors collection
     match /doctors/{doctorId} {
-      // Public visitors can only view published profiles; authenticated admins can view all
-      allow read: if (resource.data.status == 'published') || isSignedIn();
-
-      // Only authenticated admin can create, update, or delete profiles
-      allow create: if isSignedIn()
+      // Public pages may read published doctor profiles only. Admins may
+      // access drafts and pending profiles after server-verified authorization.
+      allow read: if isAdmin() || resource.data.status == 'published';
+      allow create: if isAdmin()
         && isValidId(doctorId)
-        && isValidDoctor(request.resource.data);
-
-      allow update: if isSignedIn()
+        && isValidDoctor(request.resource.data)
+        && request.resource.data.id == doctorId;
+      allow update: if isAdmin()
         && isValidId(doctorId)
-        && isValidDoctor(request.resource.data);
-
-      allow delete: if isSignedIn() && isValidId(doctorId);
+        && isValidDoctor(request.resource.data)
+        && request.resource.data.id == doctorId;
+      allow delete: if isAdmin() && isValidId(doctorId);
     }
 
-    // System diagnostic collection (used by CMS connection test)
+    // Used by the Firebase connection diagnostic. Never expose this collection
+    // to unauthenticated or ordinary signed-in users.
     match /system/{docId} {
-      allow read, write: if isSignedIn() || request.time != null;
+      allow read, write: if isAdmin();
+    }
+
+    // Deny every collection not explicitly covered above.
+    match /{document=**} {
+      allow read, write: if false;
     }
   }
 }
