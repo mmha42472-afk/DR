@@ -424,9 +424,9 @@ export function createDefaultWebsiteConfig(doctor: DoctorProfile): DoctorWebsite
     seo: {
       metaTitle: doctor.seo?.metaTitle || `${doctor.fullName} | ${doctor.specialty}`,
       metaTitleEn: doctor.seo?.metaTitleEn || `${doctor.fullNameEn || doctor.fullName} | ${doctor.specialtyEn || doctor.specialty}`,
-      metaDescription: doctor.seo?.metaDescription || doctor.bio?.slice(0, 160),
-      metaDescriptionEn: doctor.seo?.metaDescriptionEn || doctor.bioEn?.slice(0, 160),
-      keywords: doctor.seo?.keywords,
+      metaDescription: doctor.seo?.metaDescription || doctor.bio?.slice(0, 160) || '',
+      metaDescriptionEn: doctor.seo?.metaDescriptionEn || doctor.bioEn?.slice(0, 160) || '',
+      keywords: doctor.seo?.keywords || '',
     },
   };
 }

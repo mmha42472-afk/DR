@@ -127,6 +127,20 @@ function setLocalDoctors(doctors: DoctorProfile[]): void {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(doctors));
 }
 
+/**
+ * Recursively removes all `undefined` values and strips non-serializable fields
+ * from an object before sending to Firestore, preventing:
+ * "FirebaseError: Function setDoc() called with invalid data. Unsupported field value: undefined"
+ */
+export function sanitizeForFirestore<T>(data: T): T {
+  if (data === null || data === undefined) {
+    return null as unknown as T;
+  }
+  return JSON.parse(
+    JSON.stringify(data, (_, value) => (value === undefined ? null : value))
+  ) as T;
+}
+
 export type DoctorFetchErrorType =
   | 'not_found'
   | 'not_published'
@@ -460,11 +474,12 @@ export async function saveDoctor(doctor: DoctorProfile): Promise<DoctorProfile> 
   }
   setLocalDoctors(doctors);
 
-  // 2. Sync to Firestore if configured
+  // 2. Sync to Firestore if configured (sanitize to ensure zero undefined fields)
   if (firestoreInstance && currentFirebaseConfig) {
     try {
+      const sanitized = sanitizeForFirestore(updatedDoctor);
       const docRef = doc(firestoreInstance, 'doctors', updatedDoctor.id);
-      await setDoc(docRef, updatedDoctor);
+      await setDoc(docRef, sanitized);
     } catch (e) {
       console.error('Firestore save failed', e);
       throw new Error('تم الحفظ في المتصفح بنجاح، ولكن فشل الاتصال بقاعدة بيانات Firebase السحابية: ' + (e instanceof Error ? e.message : 'خطأ غير معروف'));
@@ -528,7 +543,7 @@ export async function resetDatabaseToDefaults(): Promise<DoctorProfile[]> {
   if (firestoreInstance && currentFirebaseConfig) {
     try {
       for (const d of INITIAL_DEMO_DOCTORS) {
-        await setDoc(doc(firestoreInstance, 'doctors', d.id), d);
+        await setDoc(doc(firestoreInstance, 'doctors', d.id), sanitizeForFirestore(d));
       }
     } catch (e) {
       console.warn('Failed resetting Firestore to defaults', e);
@@ -559,7 +574,7 @@ export async function importDoctorsFromJson(jsonStr: string): Promise<number> {
 
     if (firestoreInstance && currentFirebaseConfig) {
       for (const d of parsed) {
-        await setDoc(doc(firestoreInstance, 'doctors', d.id), d);
+        await setDoc(doc(firestoreInstance, 'doctors', d.id), sanitizeForFirestore(d));
       }
     }
 

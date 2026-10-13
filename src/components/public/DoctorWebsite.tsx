@@ -24,6 +24,9 @@ import {
   Globe,
   Sparkles,
 } from 'lucide-react';
+import { Interactive3DCard } from './Interactive3DCard';
+import { Interactive3DCanvas } from './Interactive3DCanvas';
+import { Doctor3DModelViewer } from './Doctor3DModelViewer';
 
 interface DoctorWebsiteProps {
   doctor: DoctorProfile;
@@ -64,10 +67,14 @@ export const DoctorWebsite: React.FC<DoctorWebsiteProps> = ({
   const [copiedLink, setCopiedLink] = useState(false);
   const [imgError, setImgError] = useState(false);
 
-  // Dynamic branding colors & active theme from config
+  // Dynamic branding colors & active theme: prioritize builder customConfig in builder mode, or doctor.branding in editor/public mode
   const theme = config.theme;
-  const primaryColor = theme.primaryColor || doctor.branding?.primaryColor || '#0F2A4A';
-  const accentColor = theme.accentColor || doctor.branding?.accentColor || '#0D9488';
+  const primaryColor = customConfig
+    ? (customConfig.theme?.primaryColor || doctor.branding?.primaryColor || theme.primaryColor || '#0F2A4A')
+    : (doctor.branding?.primaryColor || theme.primaryColor || '#0F2A4A');
+  const accentColor = customConfig
+    ? (customConfig.theme?.accentColor || doctor.branding?.accentColor || theme.accentColor || '#0D9488')
+    : (doctor.branding?.accentColor || theme.accentColor || '#0D9488');
   const lightBg = theme.lightBg || '#F8FAFC';
   const cardBg = theme.cardBg || '#FFFFFF';
   const globalAnimations = theme.enableGlobalAnimations !== false;
@@ -157,6 +164,7 @@ export const DoctorWebsite: React.FC<DoctorWebsiteProps> = ({
     if (!section.isVisible) return null;
 
     const isSelected = selectedSectionId === section.id;
+    const isBuilderMode = Boolean(onSelectSection);
     const animClass = getAnimationClass(section);
     const animStyle = getAnimationStyle(section);
 
@@ -167,9 +175,13 @@ export const DoctorWebsite: React.FC<DoctorWebsiteProps> = ({
     const sPrimaryBtn = localized(section.content.primaryButtonText, section.content.primaryButtonTextEn);
     const sSecondaryBtn = localized(section.content.secondaryButtonText, section.content.secondaryButtonTextEn);
 
-    const sectionWrapperClass = `relative transition-all ${
-      onSelectSection ? 'cursor-pointer hover:ring-2 hover:ring-teal-400/50' : ''
-    } ${isSelected ? 'ring-2 ring-teal-500 shadow-md z-10' : ''}`;
+    const sectionWrapperClass = `relative transition-all duration-300 ${
+      isBuilderMode ? 'cursor-pointer hover:ring-2 hover:ring-teal-400/40' : ''
+    } ${
+      isSelected && isBuilderMode
+        ? 'ring-3 ring-teal-500 shadow-[0_0_35px_rgba(20,184,166,0.25)] z-10'
+        : ''
+    }`;
 
     const sectionPadding =
       section.style.paddingTop === 'none'
@@ -200,10 +212,10 @@ export const DoctorWebsite: React.FC<DoctorWebsiteProps> = ({
         style={{ backgroundColor: sectionBg }}
       >
         {/* Visual indicator in builder mode when selected */}
-        {isSelected && (
-          <div className="absolute top-2 left-2 z-20 bg-teal-600 text-white text-[11px] font-semibold px-2 py-0.5 rounded shadow-sm flex items-center gap-1 pointer-events-none">
-            <Sparkles className="w-3 h-3" />
-            <span>قيد التعديل: {section.name}</span>
+        {isSelected && isBuilderMode && (
+          <div className="sticky top-3 left-4 z-30 inline-flex items-center gap-1.5 px-3 py-1 bg-gradient-to-r from-teal-600 to-emerald-600 text-white text-xs font-bold rounded-full shadow-lg border border-teal-300/40 animate-pulse pointer-events-none float-left m-2">
+            <Sparkles className="w-3.5 h-3.5" />
+            <span>قيد التعديل الآن: {section.name}</span>
           </div>
         )}
 
@@ -266,30 +278,48 @@ export const DoctorWebsite: React.FC<DoctorWebsiteProps> = ({
                 </div>
               </div>
 
-              {/* Hero Image */}
-              <div className="lg:col-span-5 flex justify-center">
-                <div className="relative w-64 sm:w-72 aspect-square rounded-2xl overflow-hidden border border-slate-200 shadow-lg bg-slate-100">
-                  {!imgError && (section.content.imageUrl || doctor.photoUrl) ? (
-                    <img
-                      src={section.content.imageUrl || doctor.photoUrl}
-                      alt={doctorName}
-                      referrerPolicy="no-referrer"
-                      onError={() => setImgError(true)}
-                      className="w-full h-full object-cover"
-                    />
-                  ) : (
-                    <div
-                      className="w-full h-full flex flex-col items-center justify-center text-white p-6 text-center"
-                      style={{ backgroundColor: primaryColor }}
-                    >
-                      <div className="w-16 h-16 rounded-2xl bg-white/10 flex items-center justify-center mb-3">
-                        <Stethoscope className="w-8 h-8 text-white" />
-                      </div>
-                      <span className="font-bold text-lg">{doctorName}</span>
-                      <span className="text-xs text-white/80 mt-1">{doctorSpecialty}</span>
-                    </div>
-                  )}
+              {/* Hero Image with 3D Gyro Perspective and Floating Canvas Ambient Nodes */}
+              <div className="lg:col-span-5 flex justify-center relative">
+                {/* Subtle ambient 3D Canvas in background */}
+                <div className="absolute -inset-10 opacity-70 pointer-events-none z-0">
+                  <Interactive3DCanvas primaryColor={primaryColor} accentColor={accentColor} particleCount={36} />
                 </div>
+
+                <Interactive3DCard depth={12} className="relative z-10 w-64 sm:w-80 aspect-square group">
+                  <div className="relative w-full h-full rounded-3xl overflow-hidden border-2 border-white/80 shadow-2xl bg-white/50 backdrop-blur-xs ring-8 ring-slate-100/80 transition-all duration-300">
+                    {!imgError && (section.content.imageUrl || doctor.photoUrl) ? (
+                      <img
+                        src={section.content.imageUrl || doctor.photoUrl}
+                        alt={doctorName}
+                        referrerPolicy="no-referrer"
+                        onError={() => setImgError(true)}
+                        className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
+                      />
+                    ) : (
+                      <div
+                        className="w-full h-full flex flex-col items-center justify-center text-white p-6 text-center"
+                        style={{ backgroundColor: primaryColor }}
+                      >
+                        <div className="w-16 h-16 rounded-2xl bg-white/10 flex items-center justify-center mb-3 animate-float-gentle">
+                          <Stethoscope className="w-8 h-8 text-white" />
+                        </div>
+                        <span className="font-bold text-lg">{doctorName}</span>
+                        <span className="text-xs text-white/80 mt-1">{doctorSpecialty}</span>
+                      </div>
+                    )}
+
+                    {/* Floating 3D Verified Badge inside card */}
+                    <div className="absolute bottom-3 inset-x-3 bg-white/90 backdrop-blur-md rounded-xl p-2.5 border border-white/60 shadow-lg flex items-center justify-between text-xs transform-gpu translate-z-12">
+                      <div className="flex items-center gap-2">
+                        <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-ping shrink-0" />
+                        <span className="font-bold text-slate-900 truncate">{doctorName}</span>
+                      </div>
+                      <span className="text-[10px] font-mono text-emerald-700 font-semibold bg-emerald-50 px-2 py-0.5 rounded-full">
+                        {isEn ? 'Verified Specialist' : 'طبيب معتمد'}
+                      </span>
+                    </div>
+                  </div>
+                </Interactive3DCard>
               </div>
             </div>
           )}
@@ -315,14 +345,27 @@ export const DoctorWebsite: React.FC<DoctorWebsiteProps> = ({
                 )}
               </div>
               <div className="lg:col-span-4 flex justify-center">
-                <div className="w-52 h-52 rounded-2xl overflow-hidden border border-slate-200 shadow-md bg-slate-100">
-                  <img
-                    src={section.content.imageUrl || doctor.photoUrl}
-                    alt={doctorName}
-                    className="w-full h-full object-cover"
-                    onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                {doctor.branding?.profile3DViewer?.enabled ? (
+                  <Doctor3DModelViewer
+                    config={doctor.branding.profile3DViewer}
+                    primaryColor={primaryColor}
+                    accentColor={accentColor}
+                    doctorName={doctorName}
+                    specialty={doctorSpecialty}
+                    className="w-full max-w-sm"
                   />
-                </div>
+                ) : (
+                  <Interactive3DCard depth={10}>
+                    <div className="w-52 sm:w-60 h-52 sm:h-60 rounded-3xl overflow-hidden border border-slate-200/90 shadow-lg bg-slate-100">
+                      <img
+                        src={section.content.imageUrl || doctor.photoUrl}
+                        alt={doctorName}
+                        className="w-full h-full object-cover"
+                        onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                      />
+                    </div>
+                  </Interactive3DCard>
+                )}
               </div>
             </div>
           )}
@@ -389,19 +432,20 @@ export const DoctorWebsite: React.FC<DoctorWebsiteProps> = ({
                   const fTitle = localized(feat.title, feat.titleEn);
                   const fDesc = localized(feat.description, feat.descriptionEn);
                   return (
-                    <div
-                      key={feat.id}
-                      className="bg-white p-5 rounded-xl border border-slate-200/80 shadow-2xs space-y-2.5"
-                    >
-                      <div
-                        className="w-8 h-8 rounded-lg flex items-center justify-center text-white shadow-2xs"
-                        style={{ backgroundColor: accentColor }}
-                      >
-                        <CheckCircle2 className="w-4 h-4" />
+                    <Interactive3DCard key={feat.id} depth={8} className="h-full">
+                      <div className="bg-white p-5 rounded-2xl border border-slate-200/90 shadow-2xs hover:shadow-lg transition-all duration-300 space-y-2.5 h-full flex flex-col justify-between">
+                        <div>
+                          <div
+                            className="w-10 h-10 rounded-xl flex items-center justify-center text-white shadow-xs mb-3 transition-transform duration-300 group-hover:scale-110"
+                            style={{ backgroundColor: accentColor }}
+                          >
+                            <CheckCircle2 className="w-5 h-5" />
+                          </div>
+                          <h3 className="font-bold text-sm text-slate-900 leading-snug">{fTitle}</h3>
+                        </div>
+                        <p className="text-xs text-slate-600 leading-relaxed">{fDesc}</p>
                       </div>
-                      <h3 className="font-bold text-sm text-slate-900">{fTitle}</h3>
-                      <p className="text-xs text-slate-600 leading-relaxed">{fDesc}</p>
-                    </div>
+                    </Interactive3DCard>
                   );
                 })}
               </div>
@@ -423,39 +467,38 @@ export const DoctorWebsite: React.FC<DoctorWebsiteProps> = ({
                   const sDesc = localized(s.description, s.descriptionEn);
                   const sTag = localized(s.tag, s.tagEn) || (isEn ? 'Medical Care' : 'خدمة طبية');
                   return (
-                    <div
-                      key={s.id}
-                      className="bg-white p-5 rounded-xl border border-slate-200/80 shadow-2xs space-y-3 flex flex-col justify-between"
-                    >
-                      <div className="space-y-2">
-                        <div className="flex items-center justify-between">
-                          <span className="text-[11px] font-semibold text-slate-500">{sTag}</span>
-                          {s.fee && (
-                            <span className="font-mono text-xs text-slate-700 font-semibold">{s.fee}</span>
-                          )}
+                    <Interactive3DCard key={s.id} depth={9} className="h-full">
+                      <div className="bg-white p-5 rounded-2xl border border-slate-200/90 shadow-2xs hover:shadow-xl transition-all duration-300 space-y-3 flex flex-col justify-between h-full group">
+                        <div className="space-y-2">
+                          <div className="flex items-center justify-between">
+                            <span className="text-[11px] font-semibold text-slate-500 bg-slate-100 px-2.5 py-0.5 rounded-full">{sTag}</span>
+                            {s.fee && (
+                              <span className="font-mono text-xs text-slate-700 font-semibold bg-teal-50 text-teal-800 px-2 py-0.5 rounded">{s.fee}</span>
+                            )}
+                          </div>
+                          <h3 className="font-bold text-sm text-slate-900 leading-snug group-hover:text-teal-800 transition-colors">{sName}</h3>
+                          <p className="text-xs text-slate-600 leading-relaxed">{sDesc}</p>
                         </div>
-                        <h3 className="font-bold text-sm text-slate-900 leading-snug">{sName}</h3>
-                        <p className="text-xs text-slate-600 leading-relaxed">{sDesc}</p>
-                      </div>
 
-                      {doctor.clinic?.whatsapp && (
-                        <div className="pt-2 border-t border-slate-100">
-                          <a
-                            href={`https://wa.me/${cleanPhone}?text=${encodeURIComponent(
-                              isEn
-                                ? `Hello, I would like to inquire about: ${sName} at Dr. ${doctorName}'s clinic.`
-                                : `السلام عليكم، أود الاستفسار عن خدمة: ${s.name} في عيادة ${doctor.fullName}.`
-                            )}`}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="text-xs font-semibold text-teal-700 hover:text-teal-800 flex items-center gap-1"
-                          >
-                            <span>{isEn ? 'Inquire about service' : 'استفسار عن هذه الخدمة'}</span>
-                            <ArrowRight className={`w-3.5 h-3.5 ${isEn ? '' : 'rotate-180'}`} />
-                          </a>
-                        </div>
-                      )}
-                    </div>
+                        {doctor.clinic?.whatsapp && (
+                          <div className="pt-2 border-t border-slate-100">
+                            <a
+                              href={`https://wa.me/${cleanPhone}?text=${encodeURIComponent(
+                                isEn
+                                  ? `Hello, I would like to inquire about: ${sName} at Dr. ${doctorName}'s clinic.`
+                                  : `السلام عليكم، أود الاستفسار عن خدمة: ${s.name} في عيادة ${doctor.fullName}.`
+                              )}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-xs font-semibold text-teal-700 hover:text-teal-800 flex items-center gap-1"
+                            >
+                              <span>{isEn ? 'Inquire about service' : 'استفسار عن هذه الخدمة'}</span>
+                              <ArrowRight className={`w-3.5 h-3.5 ${isEn ? '' : 'rotate-180'}`} />
+                            </a>
+                          </div>
+                        )}
+                      </div>
+                    </Interactive3DCard>
                   );
                 })}
               </div>

@@ -35,7 +35,10 @@ import {
   Settings,
   AlertCircle,
   Share2,
+  Box,
 } from 'lucide-react';
+import { Doctor3DModelViewer } from '../public/Doctor3DModelViewer';
+import { Model3DType, Model3DAnimationSpeed } from '../../types/doctor';
 import { DOCTOR_THEMES, getThemeById } from '../../data/themes';
 
 export type EditorTab =
@@ -113,6 +116,42 @@ export const DoctorEditor: React.FC<DoctorEditorProps> = ({
     }
     setSlugError(null);
   }, [doctor.slug, doctor.id, allDoctors]);
+
+  // Centralized state updater for branding & themes that keeps all nested configs in sync in real time
+  const updateBranding = (patch: Partial<NonNullable<DoctorProfile['branding']>>) => {
+    setDoctor((prev) => {
+      const currentBranding = prev.branding || {
+        themeId: 'navy-classic',
+        primaryColor: '#0F2A4A',
+        accentColor: '#0D9488',
+      };
+      const updatedBranding = {
+        ...currentBranding,
+        ...patch,
+      };
+
+      // Synchronize theme in draftWebsiteConfig and publishedWebsiteConfig so preview updates instantly
+      const syncConfigTheme = (cfg: any) => {
+        if (!cfg) return cfg;
+        return {
+          ...cfg,
+          theme: {
+            ...cfg.theme,
+            ...(updatedBranding.primaryColor ? { primaryColor: updatedBranding.primaryColor } : {}),
+            ...(updatedBranding.accentColor ? { accentColor: updatedBranding.accentColor } : {}),
+            ...(updatedBranding.themeId ? { themeId: updatedBranding.themeId } : {}),
+          },
+        };
+      };
+
+      return {
+        ...prev,
+        branding: updatedBranding,
+        draftWebsiteConfig: syncConfigTheme(prev.draftWebsiteConfig),
+        publishedWebsiteConfig: syncConfigTheme(prev.publishedWebsiteConfig),
+      };
+    });
+  };
 
   const handleSave = async (targetStatus?: DoctorStatus) => {
     if (slugError) {
@@ -372,10 +411,25 @@ export const DoctorEditor: React.FC<DoctorEditorProps> = ({
           </a>
 
           <button
+            type="button"
+            onClick={() => setShowLivePreviewSplit((prev) => !prev)}
+            className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-medium transition cursor-pointer ${
+              showLivePreviewSplit
+                ? 'bg-teal-50 text-teal-700 border-teal-200 font-semibold'
+                : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
+            }`}
+            title={showLivePreviewSplit ? 'إخفاء المعاينة الجانبية للموقع' : 'إظهار المعاينة الجانبية للموقع'}
+          >
+            <Eye className="w-3.5 h-3.5 text-teal-600" />
+            <span className="hidden md:inline">{showLivePreviewSplit ? 'المعاينة الحية: مفعلة' : 'إظهار المعاينة الحية'}</span>
+            <span className="md:hidden">المعاينة</span>
+          </button>
+
+          <button
             onClick={() => onPreviewPublic(doctor)}
             className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 text-slate-700 hover:bg-slate-100 text-xs font-medium transition"
           >
-            <Eye className="w-3.5 h-3.5 text-slate-500" />
+            <Globe className="w-3.5 h-3.5 text-slate-500" />
             <span>معاينة كزائر</span>
           </button>
 
@@ -1162,9 +1216,105 @@ export const DoctorEditor: React.FC<DoctorEditorProps> = ({
             {/* TAB 6: BRANDING & 5 CURATED THEMES */}
             {activeTab === 'branding' && (
               <div className="space-y-5 text-xs">
+                {/* 1. REAL-TIME LIVE STYLES & COLOR VISUALIZER (Instant Preview Component) */}
+                <div className="p-4 rounded-xl border border-teal-200 bg-gradient-to-br from-slate-900 via-slate-900 to-slate-950 text-white shadow-md space-y-3">
+                  <div className="flex items-center justify-between border-b border-slate-800 pb-2.5">
+                    <div className="flex items-center gap-2">
+                      <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse"></span>
+                      <span className="font-bold text-xs text-white flex items-center gap-1.5">
+                        <Palette className="w-4 h-4 text-teal-400" />
+                        <span>المعاينة اللحظية للألوان والأنماط (Live Visualizer)</span>
+                      </span>
+                    </div>
+                    <span className="text-[10px] text-teal-300 bg-teal-950/90 border border-teal-700/60 px-2 py-0.5 rounded-full font-mono flex items-center gap-1">
+                      <Sparkles className="w-3 h-3 text-teal-300" />
+                      <span>يتحدث فورياً عند كل تعديل</span>
+                    </span>
+                  </div>
+
+                  {/* Interactive Mockup Box reacting in Real-Time */}
+                  <div className="bg-white text-slate-900 rounded-xl p-3.5 shadow-sm space-y-3 border border-slate-200">
+                    <div className="flex items-center gap-3">
+                      <div
+                        className="w-12 h-12 rounded-xl flex items-center justify-center text-white shrink-0 shadow-sm font-bold text-lg overflow-hidden transition-all duration-300"
+                        style={{ backgroundColor: doctor.branding?.primaryColor || '#0F2A4A' }}
+                      >
+                        {doctor.photoUrl ? (
+                          <img src={doctor.photoUrl} alt="" className="w-full h-full object-cover" />
+                        ) : (
+                          <Stethoscope className="w-6 h-6 text-white" />
+                        )}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-1.5">
+                          <h5 className="font-bold text-sm text-slate-900 truncate">
+                            {doctor.fullName || 'د. محمد مصطفى'}
+                          </h5>
+                          <span
+                            className="w-2.5 h-2.5 rounded-full shrink-0 shadow-2xs transition-all duration-300"
+                            style={{ backgroundColor: doctor.branding?.accentColor || '#0D9488' }}
+                            title="اللون المميّز النشط"
+                          />
+                        </div>
+                        <p className="text-xs text-slate-500 truncate">
+                          {doctor.specialty || 'استشاري جراحة العظام والمفاصل'}
+                        </p>
+                      </div>
+                      <div className="hidden sm:flex flex-col gap-1 items-end text-[10px] font-mono">
+                        <span className="flex items-center gap-1.5 text-slate-700 bg-slate-100 px-2 py-0.5 rounded border border-slate-200">
+                          <span
+                            className="w-2.5 h-2.5 rounded-full border border-black/10 inline-block transition-all duration-300"
+                            style={{ backgroundColor: doctor.branding?.primaryColor || '#0F2A4A' }}
+                          />
+                          <span className="font-semibold">{doctor.branding?.primaryColor || '#0F2A4A'}</span>
+                        </span>
+                        <span className="flex items-center gap-1.5 text-slate-700 bg-slate-100 px-2 py-0.5 rounded border border-slate-200">
+                          <span
+                            className="w-2.5 h-2.5 rounded-full border border-black/10 inline-block transition-all duration-300"
+                            style={{ backgroundColor: doctor.branding?.accentColor || '#0D9488' }}
+                          />
+                          <span className="font-semibold">{doctor.branding?.accentColor || '#0D9488'}</span>
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Sample Action Buttons & Badges */}
+                    <div className="pt-2 border-t border-slate-100 flex flex-wrap items-center gap-2">
+                      <button
+                        type="button"
+                        className="text-xs font-semibold px-3 py-1.5 rounded-lg text-white shadow-xs transition-all duration-300 flex items-center gap-1.5"
+                        style={{ backgroundColor: doctor.branding?.primaryColor || '#0F2A4A' }}
+                      >
+                        <span>حجز موعد عيادة</span>
+                        <ArrowRight className="w-3 h-3 rotate-180" />
+                      </button>
+
+                      <button
+                        type="button"
+                        className="text-xs font-semibold px-3 py-1.5 rounded-lg border transition-all duration-300 flex items-center gap-1.5 bg-white"
+                        style={{
+                          borderColor: doctor.branding?.accentColor || '#0D9488',
+                          color: doctor.branding?.accentColor || '#0D9488',
+                        }}
+                      >
+                        <span>استشارة أونلاين</span>
+                      </button>
+
+                      <span
+                        className="text-[10px] font-bold px-2.5 py-1 rounded-full text-white inline-flex items-center gap-1 mr-auto transition-all duration-300 shadow-2xs"
+                        style={{ backgroundColor: doctor.branding?.accentColor || '#0D9488' }}
+                      >
+                        <Award className="w-3 h-3" />
+                        <span>طبيب معتمد وموثق</span>
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* 2. CURATED THEMES */}
                 <div>
                   <label className="block text-[11px] font-semibold text-slate-700 mb-2">
-                    اختر ثيم الهوية الطبية (5 تصاميم منتقاة):
+                    اختر ثيم الهوية الطبية (5 تصاميم منتقاة مع تحديث فوري):
                   </label>
                   <div className="grid grid-cols-1 gap-2.5">
                     {DOCTOR_THEMES.map((th) => {
@@ -1173,19 +1323,15 @@ export const DoctorEditor: React.FC<DoctorEditorProps> = ({
                         <div
                           key={th.id}
                           onClick={() =>
-                            setDoctor((prev) => ({
-                              ...prev,
-                              branding: {
-                                ...prev.branding,
-                                themeId: th.id,
-                                primaryColor: th.primaryColor,
-                                accentColor: th.accentColor,
-                              },
-                            }))
+                            updateBranding({
+                              themeId: th.id,
+                              primaryColor: th.primaryColor,
+                              accentColor: th.accentColor,
+                            })
                           }
                           className={`p-3 rounded-lg border transition cursor-pointer flex items-center justify-between ${
                             isSelected
-                              ? 'border-teal-600 bg-teal-50/30 ring-1 ring-teal-600/30'
+                              ? 'border-teal-600 bg-teal-50/40 ring-1 ring-teal-600/30 shadow-2xs'
                               : 'border-slate-200 bg-white hover:border-slate-300'
                           }`}
                         >
@@ -1201,12 +1347,14 @@ export const DoctorEditor: React.FC<DoctorEditorProps> = ({
 
                           <div className="flex items-center gap-1.5 shrink-0">
                             <span
-                              className="w-4 h-4 rounded-full border border-black/10 inline-block shadow-2xs"
+                              className="w-5 h-5 rounded-full border border-black/10 inline-block shadow-2xs"
                               style={{ backgroundColor: th.primaryColor }}
+                              title={`الأساسي: ${th.primaryColor}`}
                             ></span>
                             <span
-                              className="w-4 h-4 rounded-full border border-black/10 inline-block shadow-2xs"
+                              className="w-5 h-5 rounded-full border border-black/10 inline-block shadow-2xs"
                               style={{ backgroundColor: th.accentColor }}
+                              title={`التمييز: ${th.accentColor}`}
                             ></span>
                           </div>
                         </div>
@@ -1215,73 +1363,297 @@ export const DoctorEditor: React.FC<DoctorEditorProps> = ({
                   </div>
                 </div>
 
-                {/* Custom Color Tuning */}
-                <div className="pt-3 border-t border-slate-100 space-y-3">
+                {/* 3. CUSTOM PALETTE TUNING */}
+                <div className="pt-3 border-t border-slate-100 space-y-4">
                   <span className="font-semibold text-slate-800 block text-xs">
-                    تخصيص يدوي دقيق للألوان (Custom Palette):
+                    تخصيص يدوي فوري للألوان والدرجات:
                   </span>
 
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <label className="block text-[10px] text-slate-500 mb-1">
-                        اللون الأساسي (Primary)
+                  {/* Primary Color & Presets */}
+                  <div className="p-3 rounded-xl border border-slate-200 bg-slate-50/60 space-y-2.5">
+                    <div className="flex items-center justify-between">
+                      <label className="text-[11px] font-semibold text-slate-700">
+                        اللون الأساسي (Primary Color):
                       </label>
                       <div className="flex items-center gap-2">
                         <input
                           type="color"
                           value={doctor.branding?.primaryColor || '#0F2A4A'}
-                          onChange={(e) =>
-                            setDoctor((prev) => ({
-                              ...prev,
-                              branding: { ...prev.branding, primaryColor: e.target.value },
-                            }))
-                          }
+                          onChange={(e) => updateBranding({ primaryColor: e.target.value })}
                           className="w-8 h-8 rounded border border-slate-300 cursor-pointer"
                         />
                         <input
                           type="text"
                           value={doctor.branding?.primaryColor || '#0F2A4A'}
-                          onChange={(e) =>
-                            setDoctor((prev) => ({
-                              ...prev,
-                              branding: { ...prev.branding, primaryColor: e.target.value },
-                            }))
-                          }
-                          className="w-24 text-xs px-2 py-1.5 rounded border border-slate-300 font-mono uppercase"
+                          onChange={(e) => updateBranding({ primaryColor: e.target.value })}
+                          className="w-24 text-xs px-2 py-1.5 rounded border border-slate-300 font-mono uppercase bg-white"
                         />
                       </div>
                     </div>
 
-                    <div>
-                      <label className="block text-[10px] text-slate-500 mb-1">
-                        لون التمييز (Accent)
-                      </label>
-                      <div className="flex items-center gap-2">
-                        <input
-                          type="color"
-                          value={doctor.branding?.accentColor || '#0D9488'}
-                          onChange={(e) =>
-                            setDoctor((prev) => ({
-                              ...prev,
-                              branding: { ...prev.branding, accentColor: e.target.value },
-                            }))
-                          }
-                          className="w-8 h-8 rounded border border-slate-300 cursor-pointer"
-                        />
-                        <input
-                          type="text"
-                          value={doctor.branding?.accentColor || '#0D9488'}
-                          onChange={(e) =>
-                            setDoctor((prev) => ({
-                              ...prev,
-                              branding: { ...prev.branding, accentColor: e.target.value },
-                            }))
-                          }
-                          className="w-24 text-xs px-2 py-1.5 rounded border border-slate-300 font-mono uppercase"
-                        />
+                    {/* Preset Swatches for Primary Color */}
+                    <div className="space-y-1 pt-1">
+                      <span className="text-[10px] text-slate-500">درجات أساسية جاهزة للعيادات:</span>
+                      <div className="flex flex-wrap gap-1.5">
+                        {PRESET_PRIMARY_COLORS.map((preset) => {
+                          const isCurrent =
+                            (doctor.branding?.primaryColor || '#0F2A4A').toUpperCase() ===
+                            preset.value.toUpperCase();
+                          return (
+                            <button
+                              key={preset.value}
+                              type="button"
+                              onClick={() => updateBranding({ primaryColor: preset.value })}
+                              className={`px-2 py-1 rounded-md text-[11px] font-medium border flex items-center gap-1.5 transition cursor-pointer ${
+                                isCurrent
+                                  ? 'border-slate-900 bg-slate-900 text-white shadow-2xs font-bold'
+                                  : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300'
+                              }`}
+                            >
+                              <span
+                                className="w-2.5 h-2.5 rounded-full border border-black/20 shrink-0"
+                                style={{ backgroundColor: preset.value }}
+                              />
+                              <span>{preset.label}</span>
+                            </button>
+                          );
+                        })}
                       </div>
                     </div>
                   </div>
+
+                  {/* Accent Color & Presets */}
+                  <div className="p-3 rounded-xl border border-slate-200 bg-slate-50/60 space-y-2.5">
+                    <div className="flex items-center justify-between">
+                      <label className="text-[11px] font-semibold text-slate-700">
+                        لون التمييز والأزرار (Accent Color):
+                      </label>
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="color"
+                          value={doctor.branding?.accentColor || '#0D9488'}
+                          onChange={(e) => updateBranding({ accentColor: e.target.value })}
+                          className="w-8 h-8 rounded border border-slate-300 cursor-pointer"
+                        />
+                        <input
+                          type="text"
+                          value={doctor.branding?.accentColor || '#0D9488'}
+                          onChange={(e) => updateBranding({ accentColor: e.target.value })}
+                          className="w-24 text-xs px-2 py-1.5 rounded border border-slate-300 font-mono uppercase bg-white"
+                        />
+                      </div>
+                    </div>
+
+                    {/* Preset Swatches for Accent Color */}
+                    <div className="space-y-1 pt-1">
+                      <span className="text-[10px] text-slate-500">درجات تمييز وإشعارات منتقاة:</span>
+                      <div className="flex flex-wrap gap-1.5">
+                        {PRESET_ACCENT_COLORS.map((preset) => {
+                          const isCurrent =
+                            (doctor.branding?.accentColor || '#0D9488').toUpperCase() ===
+                            preset.value.toUpperCase();
+                          return (
+                            <button
+                              key={preset.value}
+                              type="button"
+                              onClick={() => updateBranding({ accentColor: preset.value })}
+                              className={`px-2 py-1 rounded-md text-[11px] font-medium border flex items-center gap-1.5 transition cursor-pointer ${
+                                isCurrent
+                                  ? 'border-slate-900 bg-slate-900 text-white shadow-2xs font-bold'
+                                  : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300'
+                              }`}
+                            >
+                              <span
+                                className="w-2.5 h-2.5 rounded-full border border-black/20 shrink-0"
+                                style={{ backgroundColor: preset.value }}
+                              />
+                              <span>{preset.label}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* 4. 3D OBJECT / MODEL VIEWER SECTION */}
+                <div className="p-4 rounded-xl border border-teal-200/80 bg-gradient-to-br from-teal-50/50 via-white to-slate-50 space-y-4 shadow-2xs">
+                  <div className="flex items-center justify-between pb-2 border-b border-teal-100">
+                    <div className="flex items-center gap-2">
+                      <div className="w-8 h-8 rounded-lg bg-teal-600 text-white flex items-center justify-center shadow-xs">
+                        <Box className="w-4 h-4" />
+                      </div>
+                      <div>
+                        <h4 className="font-bold text-xs text-slate-900 flex items-center gap-1.5">
+                          <span>عرض المجسمات والأيقونات ثلاثية الأبعاد (3D Model Viewer)</span>
+                          <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-teal-100 text-teal-800 font-semibold">
+                            جديد
+                          </span>
+                        </h4>
+                        <p className="text-[10px] text-slate-500">
+                          تفعيل مجسم طبي تفاعلي ثلاثي الأبعاد يعتمد على حركات CSS 3D في الملف التعريفي للطبيب
+                        </p>
+                      </div>
+                    </div>
+
+                    <label className="relative inline-flex items-center cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={doctor.branding?.profile3DViewer?.enabled !== false}
+                        onChange={(e) =>
+                          updateBranding({
+                            profile3DViewer: {
+                              enabled: e.target.checked,
+                              modelType: doctor.branding?.profile3DViewer?.modelType || 'dna',
+                              autoRotate: doctor.branding?.profile3DViewer?.autoRotate !== false,
+                              animationSpeed: doctor.branding?.profile3DViewer?.animationSpeed || 'normal',
+                              wireframeMode: doctor.branding?.profile3DViewer?.wireframeMode || false,
+                              scale: doctor.branding?.profile3DViewer?.scale || 1,
+                            },
+                          })
+                        }
+                        className="rounded text-teal-600 w-4 h-4"
+                      />
+                      <span className="mr-2 text-xs font-semibold text-slate-700">تفعيل</span>
+                    </label>
+                  </div>
+
+                  {doctor.branding?.profile3DViewer?.enabled !== false && (
+                    <div className="space-y-4 pt-1">
+                      {/* Model Type Selector */}
+                      <div>
+                        <label className="block text-[11px] font-semibold text-slate-700 mb-1.5">
+                          نوع المجسم ثلاثي الأبعاد (3D Model Type):
+                        </label>
+                        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                          {[
+                            { id: 'dna' as Model3DType, label: 'شريط الحمض النووي (DNA Helix)', desc: 'دوران حلزوني متحرك' },
+                            { id: 'heart' as Model3DType, label: 'القلب النابض (3D Heart)', desc: 'نبض تفاعلي 3D' },
+                            { id: 'stethoscope' as Model3DType, label: 'سماعة الطبيب (Stethoscope)', desc: 'درع طبي ثلاثي الأبعاد' },
+                            { id: 'caduceus' as Model3DType, label: 'حلقة المؤشرات (Caduceus Ring)', desc: 'مؤشرات حيوية دائرية' },
+                            { id: 'cube' as Model3DType, label: 'المكعب الطبي المجسم (3D Cube)', desc: '6 أوجه طبية متحركة' },
+                          ].map((model) => {
+                            const isSelected =
+                              (doctor.branding?.profile3DViewer?.modelType || 'dna') === model.id;
+                            return (
+                              <button
+                                key={model.id}
+                                type="button"
+                                onClick={() =>
+                                  updateBranding({
+                                    profile3DViewer: {
+                                      enabled: true,
+                                      autoRotate: doctor.branding?.profile3DViewer?.autoRotate !== false,
+                                      animationSpeed: doctor.branding?.profile3DViewer?.animationSpeed || 'normal',
+                                      ...doctor.branding?.profile3DViewer,
+                                      modelType: model.id,
+                                    },
+                                  })
+                                }
+                                className={`p-2.5 rounded-xl border text-right transition cursor-pointer ${
+                                  isSelected
+                                    ? 'border-teal-600 bg-teal-50/80 text-teal-950 font-bold shadow-2xs ring-1 ring-teal-600/30'
+                                    : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300'
+                                }`}
+                              >
+                                <span className="block text-xs font-semibold">{model.label}</span>
+                                <span className="block text-[10px] text-slate-400 mt-0.5">{model.desc}</span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+
+                      {/* Animation Controls */}
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                        {/* Auto-rotate */}
+                        <div className="p-2.5 rounded-lg border border-slate-200 bg-white space-y-1">
+                          <label className="flex items-center justify-between cursor-pointer">
+                            <span className="text-[11px] font-semibold text-slate-700">الدوران التلقائي:</span>
+                            <input
+                              type="checkbox"
+                              checked={doctor.branding?.profile3DViewer?.autoRotate !== false}
+                              onChange={(e) =>
+                                updateBranding({
+                                    profile3DViewer: {
+                                      enabled: true,
+                                      modelType: doctor.branding?.profile3DViewer?.modelType || 'dna',
+                                      ...doctor.branding?.profile3DViewer,
+                                      autoRotate: e.target.checked,
+                                    },
+                                })
+                              }
+                              className="rounded text-teal-600 w-3.5 h-3.5"
+                            />
+                          </label>
+                          <span className="text-[10px] text-slate-400 block">دوران مستمر بحركات CSS 3D</span>
+                        </div>
+
+                        {/* Animation Speed */}
+                        <div className="p-2.5 rounded-lg border border-slate-200 bg-white space-y-1">
+                          <label className="block text-[11px] font-semibold text-slate-700">سرعة الدوران:</label>
+                          <select
+                            value={doctor.branding?.profile3DViewer?.animationSpeed || 'normal'}
+                            onChange={(e) =>
+                              updateBranding({
+                                profile3DViewer: {
+                                  enabled: true,
+                                  modelType: doctor.branding?.profile3DViewer?.modelType || 'dna',
+                                  autoRotate: doctor.branding?.profile3DViewer?.autoRotate !== false,
+                                  ...doctor.branding?.profile3DViewer,
+                                  animationSpeed: e.target.value as Model3DAnimationSpeed,
+                                },
+                              })
+                            }
+                            className="w-full text-xs p-1 rounded border border-slate-200 bg-slate-50"
+                          >
+                            <option value="slow">دوران هادئ (بطيء)</option>
+                            <option value="normal">دوران متوازن (عادي)</option>
+                            <option value="fast">دوران حيوي (سريع)</option>
+                          </select>
+                        </div>
+
+                        {/* Wireframe Mode */}
+                        <div className="p-2.5 rounded-lg border border-slate-200 bg-white space-y-1">
+                          <label className="flex items-center justify-between cursor-pointer">
+                            <span className="text-[11px] font-semibold text-slate-700">وضع الإطار الهيكلي:</span>
+                            <input
+                              type="checkbox"
+                              checked={doctor.branding?.profile3DViewer?.wireframeMode || false}
+                              onChange={(e) =>
+                                updateBranding({
+                                  profile3DViewer: {
+                                    enabled: true,
+                                    modelType: doctor.branding?.profile3DViewer?.modelType || 'dna',
+                                    autoRotate: doctor.branding?.profile3DViewer?.autoRotate !== false,
+                                    ...doctor.branding?.profile3DViewer,
+                                    wireframeMode: e.target.checked,
+                                  },
+                                })
+                              }
+                              className="rounded text-teal-600 w-3.5 h-3.5"
+                            />
+                          </label>
+                          <span className="text-[10px] text-slate-400 block">عرض خطي شفاف (Wireframe)</span>
+                        </div>
+                      </div>
+
+                      {/* Live 3D Model Mini Preview */}
+                      <div className="pt-2">
+                        <span className="text-[11px] font-bold text-slate-600 mb-1.5 block">
+                          معاينة مباشرة للمجسم ثلاثي الأبعاد بالألوان الحالية:
+                        </span>
+                        <Doctor3DModelViewer
+                          config={doctor.branding?.profile3DViewer}
+                          primaryColor={doctor.branding?.primaryColor || '#0F2A4A'}
+                          accentColor={doctor.branding?.accentColor || '#0D9488'}
+                          doctorName={doctor.fullName}
+                          specialty={doctor.specialty}
+                          className="max-w-md mx-auto"
+                        />
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
             )}
@@ -1354,20 +1726,43 @@ export const DoctorEditor: React.FC<DoctorEditorProps> = ({
         </div>
 
         {/* Left Pane (Live Responsive Website Preview) */}
-        <div className="hidden lg:flex flex-1 bg-slate-900 flex-col overflow-hidden">
+        <div
+          className={`${
+            showLivePreviewSplit ? 'flex' : 'hidden'
+          } fixed inset-0 z-40 lg:static lg:z-auto flex-1 bg-slate-900 flex-col overflow-hidden`}
+        >
           {/* Preview Canvas Bar */}
-          <div className="h-10 bg-slate-950 border-b border-slate-800 px-4 flex items-center justify-between text-xs text-slate-400">
+          <div className="h-10 bg-slate-950 border-b border-slate-800 px-4 flex items-center justify-between text-xs text-slate-400 shrink-0">
             <div className="flex items-center gap-2">
-              <span className="w-2 h-2 rounded-full bg-teal-400 animate-pulse"></span>
-              <span className="font-medium text-slate-200">معاينة فورية متزامنة (Live Preview)</span>
+              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+              <span className="font-semibold text-slate-200">معاينة فورية متزامنة (Live Sync)</span>
+              <span className="text-[10px] text-teal-400 bg-teal-950/80 px-2 py-0.5 rounded border border-teal-800 font-mono hidden sm:inline">
+                الألوان والأنماط تتحدث فورياً
+              </span>
             </div>
-            <span className="font-mono text-[11px] text-slate-500">
-              {previewDevice === 'desktop'
-                ? 'عرض سطح المكتب (100%)'
-                : previewDevice === 'tablet'
-                ? 'عرض التابلت (768px)'
-                : 'عرض الهاتف الذكي (375px)'}
-            </span>
+            <div className="flex items-center gap-2 sm:gap-4">
+              <span className="font-mono text-[11px] text-slate-400 hidden md:inline">
+                اللون النشط:{' '}
+                <strong style={{ color: doctor.branding?.primaryColor || '#0F2A4A' }}>
+                  {doctor.branding?.primaryColor || '#0F2A4A'}
+                </strong>
+              </span>
+              <span className="font-mono text-[11px] text-slate-500">
+                {previewDevice === 'desktop'
+                  ? 'عرض سطح المكتب'
+                  : previewDevice === 'tablet'
+                  ? 'عرض التابلت'
+                  : 'عرض الهاتف الذكي'}
+              </span>
+              <button
+                type="button"
+                onClick={() => setShowLivePreviewSplit(false)}
+                className="lg:hidden p-1 text-slate-400 hover:text-white"
+                title="إغلاق المعاينة والعودة للنموذج"
+              >
+                <ArrowRight className="w-4 h-4" />
+              </button>
+            </div>
           </div>
 
           {/* Viewport Render Area */}

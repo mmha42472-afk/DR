@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { DoctorProfile, DoctorStatus } from '../../types/doctor';
 import {
   DoctorWebsiteConfig,
@@ -45,7 +45,9 @@ import {
   MessageCircle,
   User,
   Stethoscope,
+  Box,
 } from 'lucide-react';
+import { Doctor3DModelViewer } from '../public/Doctor3DModelViewer';
 
 interface WebsiteBuilderProps {
   doctor: DoctorProfile;
@@ -162,6 +164,49 @@ export const WebsiteBuilder: React.FC<WebsiteBuilderProps> = ({
   // Section helpers
   const selectedSection = config.sections.find((s) => s.id === selectedSectionId);
 
+  // Canvas scroll container ref for automatic scrolling to active section
+  const canvasContainerRef = useRef<HTMLDivElement>(null);
+
+  // Auto-scroll the live viewport to the selected section so user immediately sees what they are editing
+  const scrollToSectionInCanvas = (sectionId: string) => {
+    const performScroll = () => {
+      const targetElement = document.getElementById(sectionId);
+      if (!targetElement) return false;
+
+      if (canvasContainerRef.current) {
+        const container = canvasContainerRef.current;
+        const containerRect = container.getBoundingClientRect();
+        const targetRect = targetElement.getBoundingClientRect();
+        const relativeTop = targetRect.top - containerRect.top + container.scrollTop;
+        const targetScrollTop = relativeTop - (container.clientHeight / 2) + (targetRect.height / 2);
+
+        container.scrollTo({
+          top: Math.max(0, targetScrollTop),
+          behavior: 'smooth',
+        });
+      } else {
+        targetElement.scrollIntoView({
+          behavior: 'smooth',
+          block: 'center',
+        });
+      }
+      return true;
+    };
+
+    if (!performScroll()) {
+      setTimeout(performScroll, 50);
+      setTimeout(performScroll, 180);
+    }
+  };
+
+  const handleSelectSection = (sectionId: string, shouldScroll = true) => {
+    setSelectedSectionId(sectionId);
+    setActiveTab('section');
+    if (shouldScroll) {
+      scrollToSectionInCanvas(sectionId);
+    }
+  };
+
   const updateSelectedSection = (updater: (prev: WebsiteSection) => WebsiteSection) => {
     if (!selectedSectionId) return;
     const nextSections = config.sections.map((sec) => {
@@ -202,7 +247,7 @@ export const WebsiteBuilder: React.FC<WebsiteBuilderProps> = ({
     const newSections = [...config.sections];
     newSections.splice(sourceIndex + 1, 0, duplicate);
     updateConfig({ ...config, sections: newSections });
-    setSelectedSectionId(duplicate.id);
+    handleSelectSection(duplicate.id);
   };
 
   const handleDeleteSection = (id: string, e: React.MouseEvent) => {
@@ -214,7 +259,12 @@ export const WebsiteBuilder: React.FC<WebsiteBuilderProps> = ({
     const newSections = config.sections.filter((s) => s.id !== id);
     updateConfig({ ...config, sections: newSections });
     if (selectedSectionId === id) {
-      setSelectedSectionId(newSections[0]?.id || null);
+      const fallbackId = newSections[0]?.id || null;
+      if (fallbackId) {
+        handleSelectSection(fallbackId);
+      } else {
+        setSelectedSectionId(null);
+      }
     }
   };
 
@@ -222,7 +272,7 @@ export const WebsiteBuilder: React.FC<WebsiteBuilderProps> = ({
     const newSec = createNewSection(type, doctor);
     const newSections = [...config.sections, newSec];
     updateConfig({ ...config, sections: newSections });
-    setSelectedSectionId(newSec.id);
+    handleSelectSection(newSec.id);
     setShowSectionLibraryModal(false);
   };
 
@@ -476,13 +526,10 @@ export const WebsiteBuilder: React.FC<WebsiteBuilderProps> = ({
               return (
                 <div
                   key={section.id}
-                  onClick={() => {
-                    setSelectedSectionId(section.id);
-                    setActiveTab('section');
-                  }}
+                  onClick={() => handleSelectSection(section.id, true)}
                   className={`group p-2.5 rounded-lg text-xs transition border flex items-center justify-between cursor-pointer ${
                     isSelected
-                      ? 'bg-slate-800 border-teal-500 text-white font-semibold shadow-xs'
+                      ? 'bg-slate-800 border-teal-500 text-white font-semibold shadow-xs ring-1 ring-teal-500/50'
                       : 'bg-slate-800/40 border-slate-800 text-slate-300 hover:bg-slate-800/80 hover:text-white'
                   }`}
                 >
@@ -574,7 +621,10 @@ export const WebsiteBuilder: React.FC<WebsiteBuilderProps> = ({
         </aside>
 
         {/* CENTER: LIVE WEBSITE CANVAS */}
-        <main className="flex-1 bg-slate-950 flex flex-col items-center justify-start p-4 sm:p-6 overflow-y-auto">
+        <main
+          ref={canvasContainerRef}
+          className="flex-1 bg-slate-950 flex flex-col items-center justify-start p-4 sm:p-6 overflow-y-auto scroll-smooth"
+        >
           {/* Viewport Frame */}
           <div
             className={`transition-all duration-300 bg-white shadow-2xl rounded-xl overflow-hidden border border-slate-800 ${
@@ -593,8 +643,7 @@ export const WebsiteBuilder: React.FC<WebsiteBuilderProps> = ({
               onLanguageChange={setPreviewLanguage}
               selectedSectionId={selectedSectionId}
               onSelectSection={(id) => {
-                setSelectedSectionId(id);
-                setActiveTab('section');
+                handleSelectSection(id, false);
               }}
               isAdminPreview={false}
             />
@@ -675,9 +724,40 @@ export const WebsiteBuilder: React.FC<WebsiteBuilderProps> = ({
             {/* TAB 1: SECTION SETTINGS */}
             {activeTab === 'section' && selectedSection && (
               <div className="space-y-4">
-                <div className="border-b border-slate-800 pb-2">
-                  <span className="text-[11px] font-mono text-teal-400">{selectedSection.type}</span>
-                  <h3 className="font-bold text-sm text-white">{selectedSection.name}</h3>
+                <div className="border-b border-slate-800 pb-3 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <span className="text-[10px] font-mono uppercase tracking-wider text-teal-400 bg-teal-950/70 border border-teal-800/60 px-1.5 py-0.5 rounded">
+                        {selectedSection.type}
+                      </span>
+                      <h3 className="font-bold text-sm text-white mt-1">{selectedSection.name}</h3>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => scrollToSectionInCanvas(selectedSection.id)}
+                      className="flex items-center gap-1.5 px-2.5 py-1 bg-teal-600/20 hover:bg-teal-600/30 text-teal-300 border border-teal-500/30 rounded-lg text-xs font-medium transition cursor-pointer shadow-xs active:scale-95"
+                      title="تمرير الشاشة وعرض هذا القسم في نافذة المعاينة فوراً"
+                    >
+                      <Eye className="w-3.5 h-3.5" />
+                      <span>عرض في الشاشة</span>
+                    </button>
+                  </div>
+
+                  {/* Quick Section Switcher dropdown */}
+                  <div className="pt-1">
+                    <label className="text-[10px] text-slate-400 block mb-1">التبديل لقسم آخر والتمرير إليه:</label>
+                    <select
+                      value={selectedSection.id}
+                      onChange={(e) => handleSelectSection(e.target.value, true)}
+                      className="w-full bg-slate-800 border border-slate-700 rounded-md p-1.5 text-xs text-slate-200 focus:border-teal-500 focus:outline-none cursor-pointer"
+                    >
+                      {config.sections.map((sec, i) => (
+                        <option key={sec.id} value={sec.id}>
+                          {i + 1}. {sec.name} ({sec.type})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
                 </div>
 
                 {/* Section title (Arabic & English) */}
@@ -1801,6 +1881,122 @@ export const WebsiteBuilder: React.FC<WebsiteBuilderProps> = ({
                       <span className="font-mono text-[11px] text-slate-300">{config.theme.accentColor}</span>
                     </div>
                   </div>
+                </div>
+
+                {/* 3D Model Viewer Settings in Builder */}
+                <div className="p-3 bg-slate-800/60 rounded-lg border border-slate-800 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-1.5 text-teal-400">
+                      <Box className="w-4 h-4" />
+                      <span className="font-bold text-slate-200 block text-xs">المجسم الطبي 3D في الموقع</span>
+                    </div>
+                    <label className="flex items-center gap-1 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={currentDoctor.branding?.profile3DViewer?.enabled !== false}
+                        onChange={(e) =>
+                          updateDoctor((prev) => ({
+                            ...prev,
+                            branding: {
+                              ...prev.branding,
+                              profile3DViewer: {
+                                enabled: e.target.checked,
+                                modelType: prev.branding?.profile3DViewer?.modelType || 'dna',
+                                autoRotate: prev.branding?.profile3DViewer?.autoRotate !== false,
+                                animationSpeed: prev.branding?.profile3DViewer?.animationSpeed || 'normal',
+                                wireframeMode: prev.branding?.profile3DViewer?.wireframeMode || false,
+                                scale: prev.branding?.profile3DViewer?.scale || 1,
+                              },
+                            },
+                          }))
+                        }
+                        className="rounded text-teal-500 w-3.5 h-3.5"
+                      />
+                      <span className="text-[11px] text-slate-300">مُفعل</span>
+                    </label>
+                  </div>
+
+                  {currentDoctor.branding?.profile3DViewer?.enabled !== false && (
+                    <div className="space-y-2 pt-1">
+                      <div>
+                        <label className="block text-[10px] text-slate-400 mb-1">شكل المجسم 3D:</label>
+                        <select
+                          value={currentDoctor.branding?.profile3DViewer?.modelType || 'dna'}
+                          onChange={(e) =>
+                            updateDoctor((prev) => ({
+                              ...prev,
+                              branding: {
+                                ...prev.branding,
+                                profile3DViewer: {
+                                  enabled: true,
+                                  autoRotate: prev.branding?.profile3DViewer?.autoRotate !== false,
+                                  animationSpeed: prev.branding?.profile3DViewer?.animationSpeed || 'normal',
+                                  ...prev.branding?.profile3DViewer,
+                                  modelType: e.target.value as any,
+                                },
+                              },
+                            }))
+                          }
+                          className="w-full bg-slate-900 border border-slate-700 rounded p-1.5 text-xs text-white"
+                        >
+                          <option value="dna">حلزون الحمض النووي (DNA Helix)</option>
+                          <option value="heart">القلب النابض (3D Pulsing Heart)</option>
+                          <option value="stethoscope">سماعة الطبيب (Stethoscope 3D)</option>
+                          <option value="caduceus">حلقة المؤشرات الحيوية (Caduceus)</option>
+                          <option value="cube">المكعب الطبي المجسم (Hologram Cube)</option>
+                        </select>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-2">
+                        <label className="flex items-center justify-between p-1.5 bg-slate-900/60 rounded border border-slate-700/60 cursor-pointer text-[10px]">
+                          <span className="text-slate-300">دوران تلقائي:</span>
+                          <input
+                            type="checkbox"
+                            checked={currentDoctor.branding?.profile3DViewer?.autoRotate !== false}
+                            onChange={(e) =>
+                              updateDoctor((prev) => ({
+                                ...prev,
+                                branding: {
+                                  ...prev.branding,
+                                  profile3DViewer: {
+                                    enabled: true,
+                                    modelType: prev.branding?.profile3DViewer?.modelType || 'dna',
+                                    ...prev.branding?.profile3DViewer,
+                                    autoRotate: e.target.checked,
+                                  },
+                                },
+                              }))
+                            }
+                            className="rounded text-teal-500 w-3.5 h-3.5"
+                          />
+                        </label>
+
+                        <select
+                          value={currentDoctor.branding?.profile3DViewer?.animationSpeed || 'normal'}
+                          onChange={(e) =>
+                            updateDoctor((prev) => ({
+                              ...prev,
+                              branding: {
+                                ...prev.branding,
+                                profile3DViewer: {
+                                  enabled: true,
+                                  modelType: prev.branding?.profile3DViewer?.modelType || 'dna',
+                                  autoRotate: prev.branding?.profile3DViewer?.autoRotate !== false,
+                                  ...prev.branding?.profile3DViewer,
+                                  animationSpeed: e.target.value as any,
+                                },
+                              },
+                            }))
+                          }
+                          className="bg-slate-900 border border-slate-700 rounded p-1 text-[11px] text-white"
+                        >
+                          <option value="slow">سرعة بطيئة</option>
+                          <option value="normal">سرعة عادية</option>
+                          <option value="fast">سرعة سريعة</option>
+                        </select>
+                      </div>
+                    </div>
+                  )}
                 </div>
 
                 {/* Header & Navigation */}

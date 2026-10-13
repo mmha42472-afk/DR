@@ -532,6 +532,40 @@ export const Dashboard: React.FC<DashboardProps> = ({
             </div>
           </div>
 
+          {/* Luxury $1M Studio Banner: Visual Website Builder Launchpad with 3D preview */}
+          {onOpenBuilder && doctors.length > 0 && (
+            <div className="relative overflow-hidden rounded-2xl bg-gradient-to-r from-slate-900 via-teal-950 to-slate-900 p-6 text-white border border-teal-800/40 shadow-xl">
+              <div className="absolute top-0 right-0 w-96 h-96 bg-teal-500/10 rounded-full blur-3xl pointer-events-none" />
+              <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-4">
+                <div className="space-y-1.5 max-w-xl">
+                  <div className="flex items-center gap-2">
+                    <span className="px-2.5 py-0.5 rounded-full bg-teal-500/20 text-teal-300 font-mono text-[10px] font-bold border border-teal-500/30 flex items-center gap-1">
+                      <Sparkles className="w-3 h-3 text-teal-300" />
+                      <span>VISUAL WEBSITE BUILDER · استوديو التصميم المرئي</span>
+                    </span>
+                    <span className="text-[10px] text-slate-400 font-mono">12 قسماً جاهزاً + حركات تفاعلية و 3D</span>
+                  </div>
+                  <h3 className="text-lg font-bold text-white tracking-tight">
+                    صمّم وخصّص موقع أي طبيب بضغطة زر مع معاينة حية فورية
+                  </h3>
+                  <p className="text-xs text-slate-300 leading-relaxed">
+                    تحكّم كامل في الألوان (Primary / Accent)، رفع اللوجو وصور العيادة، إعادة ترتيب الأقسام بالسحب، إضافة وحذف الأقسام، مع حفظ المسودة ونشر الرابط العام فوراً.
+                  </p>
+                </div>
+
+                <div className="flex items-center gap-2 shrink-0">
+                  <button
+                    onClick={() => onOpenBuilder(doctors[0])}
+                    className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-teal-500 to-emerald-500 hover:from-teal-400 hover:to-emerald-400 text-slate-950 font-bold text-xs shadow-lg shadow-teal-950/40 transition active:scale-95 cursor-pointer"
+                  >
+                    <Layout className="w-4 h-4 text-slate-950" />
+                    <span>فتح المصمم المرئي (Website Builder)</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* ----------------- SECTION 1: DOCTORS DIRECTORY TABLE ----------------- */}
           {(activeNav === 'overview' || activeNav === 'doctors') && (
             <div className="bg-white rounded-xl border border-slate-200/90 shadow-2xs overflow-hidden">

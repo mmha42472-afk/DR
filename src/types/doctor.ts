@@ -70,11 +70,25 @@ export interface SocialLinks {
   tiktok?: string;
 }
 
+export type Model3DType = 'dna' | 'caduceus' | 'stethoscope' | 'heart' | 'cube';
+export type Model3DAnimationSpeed = 'slow' | 'normal' | 'fast';
+
+export interface Profile3DViewerConfig {
+  enabled: boolean;
+  modelType: Model3DType;
+  autoRotate: boolean;
+  animationSpeed?: Model3DAnimationSpeed;
+  lightingEffect?: boolean;
+  wireframeMode?: boolean;
+  scale?: number; // 0.8 to 1.5
+}
+
 export interface WebsiteBranding {
   primaryColor: string;
   accentColor: string;
   themeId?: string;
   fontStyle?: 'classic' | 'modern';
+  profile3DViewer?: Profile3DViewerConfig;
 }
 
 export interface SEOData {
